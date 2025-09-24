@@ -13,6 +13,22 @@ from python.helpers.messages import truncate_text as truncate_text_agent
 import re
 
 
+# Timeouts for python, nodejs, and terminal runtimes.
+CODE_EXEC_TIMEOUTS: dict[str, int] = {
+    "first_output_timeout": 30,
+    "between_output_timeout": 15,
+    "max_exec_timeout": 180,
+    "dialog_timeout": 5,
+}
+
+# Timeouts for output runtime.
+OUTPUT_TIMEOUTS: dict[str, int] = {
+    "first_output_timeout": 90,
+    "between_output_timeout": 45,
+    "max_exec_timeout": 300,
+    "dialog_timeout": 5,
+}
+
 @dataclass
 class State:
     ssh_enabled: bool
@@ -42,7 +58,7 @@ class CodeExecution(Tool):
             )
         elif runtime == "output":
             response = await self.get_terminal_output(
-                session=session, first_output_timeout=60, between_output_timeout=5
+                session=session, timeouts=OUTPUT_TIMEOUTS
             )
         elif runtime == "reset":
             response = await self.reset_terminal(session=session)
@@ -139,7 +155,7 @@ class CodeExecution(Tool):
         return await self.terminal_session(session, command, reset, prefix)
 
     async def terminal_session(
-        self, session: int, command: str, reset: bool = False, prefix: str = ""
+        self, session: int, command: str, reset: bool = False, prefix: str = "", timeouts: dict | None = None
     ):
 
         self.state = await self.prepare_state(reset=reset, session=session)
@@ -164,7 +180,7 @@ class CodeExecution(Tool):
                 PrintStyle(
                     background_color="white", font_color="#1B4F72", bold=True
                 ).print(f"{self.agent.agent_name} code execution output{locl}")
-                return await self.get_terminal_output(session=session, prefix=prefix)
+                return await self.get_terminal_output(session=session, prefix=prefix, timeouts=(timeouts or CODE_EXEC_TIMEOUTS))
 
             except Exception as e:
                 if i == 1:
@@ -196,10 +212,18 @@ class CodeExecution(Tool):
         max_exec_timeout=180,  # hard cap on total runtime
         sleep_time=0.1,
         prefix="",
+        timeouts: dict | None = None,
     ):
 
         # if not self.state:
         self.state = await self.prepare_state(session=session)
+
+        # Override timeouts if a dict is provided
+        if timeouts:
+            first_output_timeout = timeouts.get("first_output_timeout", first_output_timeout)
+            between_output_timeout = timeouts.get("between_output_timeout", between_output_timeout)
+            dialog_timeout = timeouts.get("dialog_timeout", dialog_timeout)
+            max_exec_timeout = timeouts.get("max_exec_timeout", max_exec_timeout)
 
         # Common shell prompt regex patterns (add more as needed)
         prompt_patterns = [
