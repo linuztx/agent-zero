@@ -60,27 +60,11 @@ class BackupService:
         # Ensure paths don't have double slashes
         agent_root = self.agent_zero_root.rstrip('/')
 
-        return f"""# Agent Zero Knowledge (excluding defaults)
-{agent_root}/knowledge/**
-!{agent_root}/knowledge/default/**
-
-# Agent Zero Instruments (excluding defaults)
-{agent_root}/instruments/**
-!{agent_root}/instruments/default/**
-
-# Memory (excluding embeddings cache)
-{agent_root}/memory/**
-!{agent_root}/memory/**/embeddings/**
-
-# Configuration and Settings (CRITICAL)
+        return f"""# Configuration and Settings (CRITICAL)
 {agent_root}/.env
-{agent_root}/tmp/settings.json
-{agent_root}/tmp/secrets.env
-{agent_root}/tmp/chats/**
-{agent_root}/tmp/scheduler/**
-{agent_root}/tmp/uploads/**
 
 # User data
+# All persistent user data is now centralized in /usr for easier backup and restore
 {agent_root}/usr/**
 """
 
