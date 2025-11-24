@@ -72,17 +72,11 @@ def _migrate_memory(base_path: str = "memory") -> None:
     for subdir in subdirs:
         if subdir == "embeddings":
             # Special case: Embeddings
-            # If it's in root memory, move to tmp. If in tmp, leave it.
-            if base_path == "memory":
-                if not files.exists("tmp/memory/embeddings"):
-                    PrintStyle().print("Migrating memory/embeddings to tmp/memory/embeddings...")
-                    files.move_dir("memory/embeddings", "tmp/memory/embeddings")
+            _move_dir("memory/embeddings", "tmp/memory/embeddings")
         else:
             # Move other memory items to usr/memory
             dst = f"usr/memory/{subdir}"
-            if not files.exists(dst):
-                PrintStyle().print(f"Migrating {base_path}/{subdir} to {dst}...")
-                files.move_dir(f"{base_path}/{subdir}", dst)
+            _move_dir(f"memory/{subdir}", dst)
 
 def _merge_dir_contents(src_parent: str, dst_parent: str) -> None:
     """
