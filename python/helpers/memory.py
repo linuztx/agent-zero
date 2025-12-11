@@ -336,7 +336,7 @@ class Memory:
         # load custom instruments descriptions
         index = knowledge_import.load_knowledge(
             log_item,
-            files.get_abs_path("usr/instruments/custom"),
+            files.get_abs_path("usr/instruments"),
             index,
             {"area": Memory.Area.INSTRUMENTS.value},
             filename_pattern="**/*.md",
@@ -558,7 +558,7 @@ def get_existing_memory_subdirs() -> list[str]:
         )
 
         # Get subdirectories from memory folder
-        subdirs = files.get_subdirectories("usr/memory", exclude="embeddings")
+        subdirs = files.get_subdirectories("usr/memory")
 
         project_subdirs = files.get_subdirectories(get_projects_parent_folder())
         for project_subdir in project_subdirs:

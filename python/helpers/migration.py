@@ -18,15 +18,15 @@ def migrate_user_data() -> None:
     _move_dir("tmp/upload", "usr/upload")
     _move_dir("tmp/downloads", "usr/downloads")
     _move_dir("tmp/email", "usr/email")
-    _move_dir("knowledge/custom", "usr/knowledge/custom")
-    _move_dir("instruments/custom", "usr/instruments/custom")
+    _move_dir("knowledge/custom", "usr/knowledge")
+    _move_dir("instruments/custom", "usr/instruments")
 
     # --- Migrate Files -------------------------------------------------------------
     # Move specific configuration files to usr/
     
     _move_file("tmp/settings.json", "usr/settings.json")
     _move_file("tmp/secrets.env", "usr/secrets.env")
-    _move_file("tmp/default.env", "usr/default.env")
+    _move_file(".env", "usr/.env")
 
     # --- Special Migration Cases ---------------------------------------------------
     

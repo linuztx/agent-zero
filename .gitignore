@@ -17,19 +17,28 @@
 
 # Handle memory directory
 memory/**
+!memory/**/
 
 # Handle logs directory
 logs/*
 
 # Handle tmp and usr directory
 tmp/*
-usr/
+usr/*
 
 # Handle knowledge directory
 knowledge/**
+!knowledge/**/
+# Explicitly allow the default folder in knowledge
+!knowledge/default/
+!knowledge/default/**
 
 # Handle instruments directory
 instruments/**
+!instruments/**/
+# Explicitly allow the default folder in instruments
+!instruments/default/
+!instruments/default/**
 
 # Global rule to include .gitkeep files anywhere
 !**/.gitkeep
