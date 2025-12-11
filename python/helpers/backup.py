@@ -60,12 +60,12 @@ class BackupService:
         # Ensure paths don't have double slashes
         agent_root = self.agent_zero_root.rstrip('/')
 
-        return f"""# Configuration and Settings (CRITICAL)
-{agent_root}/.env
-
-# User data
+        return f"""# User data
 # All persistent user data is now centralized in /usr for easier backup and restore
 {agent_root}/usr/**
+
+# Explicitly include .env
+{agent_root}/usr/.env
 """
 
     def _get_agent_zero_version(self) -> str:
