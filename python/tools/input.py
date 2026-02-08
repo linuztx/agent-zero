@@ -2,12 +2,26 @@ from agent import Agent, UserMessage
 from python.helpers.tool import Tool, Response
 from python.tools.code_execution_tool import CodeExecution
 
+CONTROL_CHAR_MAP = {
+    "<ctrl+c>": "\x03",  # ETX - Interrupt (SIGINT)
+    "<ctrl+d>": "\x04",  # EOT - End of transmission (EOF)
+}
+
+
+def resolve_control_chars(text: str) -> str:
+    result = text
+    for placeholder, byte_value in CONTROL_CHAR_MAP.items():
+        if placeholder in result:
+            result = result.replace(placeholder, byte_value)
+    return result
+
 
 class Input(Tool):
 
     async def execute(self, keyboard="", **kwargs):
         # normalize keyboard input
         keyboard = keyboard.rstrip()
+        keyboard = resolve_control_chars(keyboard)
         # keyboard += "\n" # no need to, code_exec does that
         
         # terminal session number
