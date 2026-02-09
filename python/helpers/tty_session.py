@@ -159,6 +159,24 @@ async def _spawn_posix_pty(cmd, cwd, env, echo):
         attrs[3] &= ~termios.ECHO  # lflag
         termios.tcsetattr(slave, termios.TCSANOW, attrs)
 
+    # Get slave device name so the child can re-open it to establish the
+    # controlling terminal for its new session (required for signal delivery).
+    slave_name = os.ttyname(slave)
+
+    def _child_preexec():
+        # Create a new session so the child is isolated from the parent's
+        # terminal (replaces the old start_new_session=True flag which could
+        # not be combined portably with preexec_fn across Python versions).
+        os.setsid()
+        # Re-open the slave PTY by name.  Because the child is now a session
+        # leader without a controlling terminal, this open() automatically
+        # makes the slave the controlling terminal of the session.  Without
+        # this step the TTY line discipline cannot deliver job-control signals
+        # (SIGINT from Ctrl-C, SIGTSTP from Ctrl-Z, …) to the foreground
+        # process group — the \x03 byte is silently consumed instead.
+        fd = os.open(slave_name, os.O_RDWR)
+        os.close(fd)
+
     proc = await asyncio.create_subprocess_shell(
         cmd,
         stdin=slave,
@@ -167,6 +185,7 @@ async def _spawn_posix_pty(cmd, cwd, env, echo):
         cwd=cwd,
         env=env,
         close_fds=True,
+        preexec_fn=_child_preexec,
     )
     os.close(slave)
 
