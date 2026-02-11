@@ -14,6 +14,7 @@ class Input(Tool):
     async def execute(self, keyboard="", **kwargs):
         # normalize keyboard input
         keyboard = keyboard.rstrip()
+        display_code = keyboard
         keyboard = resolve_control_chars(keyboard)
         # keyboard += "\n" # no need to, code_exec does that
         
@@ -21,8 +22,17 @@ class Input(Tool):
         session = int(self.args.get("session", 0))
 
         # forward keyboard input to code execution tool
-        args = {"runtime": "terminal", "code": keyboard, "session": session, "allow_running": True}
-        cet = CodeExecution(self.agent, "code_execution_tool", "", args, self.message, self.loop_data)
+        args = {
+            "runtime": "terminal",
+            "code": keyboard,
+            "session": session,
+            "allow_running": True,
+            "source": "input",
+            "display_code": display_code,
+        }
+        cet = CodeExecution(
+            self.agent, "code_execution_tool", "", args, self.message, self.loop_data
+        )
         cet.log = self.log
         return await cet.execute(**args)
 
