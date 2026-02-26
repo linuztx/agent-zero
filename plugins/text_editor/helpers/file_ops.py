@@ -58,7 +58,7 @@ class ReadResult:
 
 def read_file(
     path: str,
-    line_from: int = 0,
+    line_from: int = 1,
     line_to: int | None = None,
     max_line_tokens: int = 500,
     default_line_count: int = 100,
@@ -66,8 +66,9 @@ def read_file(
 ) -> ReadResult:
     """Read a text file and return numbered lines with token budgeting.
 
-    line_from and line_to are both inclusive. None line_to defaults to
-    line_from + default_line_count - 1.
+    Line numbers are 1-based (matching grep, sed, editors).
+    line_from and line_to are both inclusive.
+    None line_to defaults to line_from + default_line_count - 1.
     """
     path = os.path.expanduser(path)
 
@@ -84,13 +85,15 @@ def read_file(
         return ReadResult(error=str(exc))
 
     total_lines = len(all_lines)
-    line_from = max(line_from, 0)
+    line_from = max(line_from, 1)
     if line_to is None:
         line_to = line_from + default_line_count - 1
-    line_to = min(line_to, total_lines - 1)
+    line_to = min(line_to, total_lines)
 
-    # Slice is exclusive on the right, so +1
-    selected = all_lines[line_from:line_to + 1]
+    # Convert 1-based inclusive range to 0-based slice
+    idx_from = line_from - 1
+    idx_to = line_to  # slice is exclusive, line_to is inclusive 1-based
+    selected = all_lines[idx_from:idx_to]
 
     warn_parts: list[str] = []
     cropped_lines: list[int] = []
@@ -99,7 +102,7 @@ def read_file(
     trimmed_by_total = False
 
     for i, raw_line in enumerate(selected):
-        line_no = line_from + i
+        line_no = line_from + i  # 1-based
         stripped = raw_line.rstrip("\n").rstrip("\r")
         line_tok = tokens.count_tokens(stripped)
 
@@ -182,6 +185,7 @@ class PatchResult:
 def validate_edits(edits: list | None) -> tuple[list[dict], str]:
     """Normalise and validate an edits array.
 
+    Line numbers are 1-based (matching grep, sed, editors).
     Semantics (to is inclusive):
       {from:2, to:2, content:"x\\n"} - replace line 2
       {from:1, to:3, content:"x\\n"} - replace lines 1-3
@@ -197,9 +201,9 @@ def validate_edits(edits: list | None) -> tuple[list[dict], str]:
     for e in edits:
         if not isinstance(e, dict):
             return [], f"invalid edit entry: {e}"
-        frm = int(e.get("from", -1))
-        if frm < 0:
-            return [], f"edit missing from: {e}"
+        frm = int(e.get("from", 0))
+        if frm < 1:
+            return [], f"edit missing or invalid from (must be >= 1): {e}"
         # to == -1 or absent means pure insert (no lines removed)
         to = int(e.get("to", -1))
         is_insert = to < 0 or to < frm
@@ -233,7 +237,8 @@ def validate_edits(edits: list | None) -> tuple[list[dict], str]:
 def apply_patch(path: str, edits: list[dict]) -> int:
     """Apply sorted, validated edits by streaming to a temp file.
 
-    Edits use inclusive 'to'. Inserts have 'insert': True.
+    Line numbers are 1-based. Edits use inclusive 'to'.
+    Inserts have 'insert': True.
     Returns total line count after patching.
     """
     dir_name = os.path.dirname(path) or "."
@@ -244,7 +249,7 @@ def apply_patch(path: str, edits: list[dict]) -> int:
             os.fdopen(fd, "w", encoding="utf-8") as dst,
         ):
             edit_idx = 0
-            line_no = 0
+            line_no = 1  # 1-based
             total_written = 0
 
             for raw_line in src:

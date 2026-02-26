@@ -33,7 +33,7 @@ class TextEditor(Tool):
             return self._error("read", path, "path is required")
 
         cfg = get_config(self.agent)
-        line_from = int(kwargs.get("line_from", 0))
+        line_from = int(kwargs.get("line_from", 1))
         raw_to = kwargs.get("line_to")
         line_to = int(raw_to) if raw_to is not None else None
 
