@@ -5,7 +5,8 @@ use terminal (grep find sed) for searching files and advanced replacements
 
 #### text_editor:read
 read text file with line numbers
-args: path (required), line_from (optional int), line_to (optional int)
+args: path (required), line_from (optional int, inclusive), line_to (optional int, inclusive)
+line_from and line_to are both inclusive: line_to=5 means line 5 is included
 defaults to first {{default_line_count}} lines if no range given
 output shows numbered lines for precise patching
 for binary files use terminal instead

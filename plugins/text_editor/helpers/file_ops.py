@@ -6,7 +6,7 @@ No agent/tool dependencies — only stdlib + tokens helper.
 import os
 import shutil
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from python.helpers import plugins, tokens
@@ -59,12 +59,16 @@ class ReadResult:
 def read_file(
     path: str,
     line_from: int = 0,
-    line_to: int = 0,
+    line_to: int | None = None,
     max_line_tokens: int = 500,
     default_line_count: int = 100,
     max_total_read_tokens: int = 4000,
 ) -> ReadResult:
-    """Read a text file and return numbered lines with token budgeting."""
+    """Read a text file and return numbered lines with token budgeting.
+
+    line_from and line_to are both inclusive. None line_to defaults to
+    line_from + default_line_count - 1.
+    """
     path = os.path.expanduser(path)
 
     if not os.path.isfile(path):
@@ -81,11 +85,12 @@ def read_file(
 
     total_lines = len(all_lines)
     line_from = max(line_from, 0)
-    if not line_to:
-        line_to = min(line_from + default_line_count, total_lines)
-    line_to = min(line_to, total_lines)
+    if line_to is None:
+        line_to = line_from + default_line_count - 1
+    line_to = min(line_to, total_lines - 1)
 
-    selected = all_lines[line_from:line_to]
+    # Slice is exclusive on the right, so +1
+    selected = all_lines[line_from:line_to + 1]
 
     warn_parts: list[str] = []
     cropped_lines: list[int] = []
@@ -145,8 +150,10 @@ class WriteResult:
     error: str = ""
 
 
-def write_file(path: str, content: str) -> WriteResult:
+def write_file(path: str, content: str | None) -> WriteResult:
     """Create or overwrite a file."""
+    if content is None:
+        content = ""
     path = os.path.expanduser(path)
     try:
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
@@ -172,7 +179,7 @@ class PatchResult:
     error: str = ""
 
 
-def validate_edits(edits: list) -> tuple[list[dict], str]:
+def validate_edits(edits: list | None) -> tuple[list[dict], str]:
     """Normalise and validate an edits array.
 
     Semantics (to is inclusive):
@@ -289,7 +296,7 @@ def apply_patch(path: str, edits: list[dict]) -> int:
         raise
 
 
-def patch_file(path: str, edits: list) -> PatchResult:
+def patch_file(path: str, edits: list | None) -> PatchResult:
     """Validate and apply edits to a file."""
     path = os.path.expanduser(path)
     if not os.path.isfile(path):

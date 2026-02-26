@@ -34,7 +34,8 @@ class TextEditor(Tool):
 
         cfg = get_config(self.agent)
         line_from = int(kwargs.get("line_from", 0))
-        line_to = int(kwargs.get("line_to", 0))
+        raw_to = kwargs.get("line_to")
+        line_to = int(raw_to) if raw_to is not None else None
 
         result = read_file(
             path,
@@ -66,7 +67,7 @@ class TextEditor(Tool):
     # ------------------------------------------------------------------
     # WRITE
     # ------------------------------------------------------------------
-    async def _write(self, path: str = "", content: str = "", **kwargs) -> Response:
+    async def _write(self, path: str = "", content: str | None = "", **kwargs) -> Response:
         if not path:
             return self._error("write", path, "path is required")
 
