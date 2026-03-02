@@ -7,7 +7,7 @@ No agent/tool dependencies — only stdlib + tokens helper.
 import os
 import shutil
 import tempfile
-from dataclasses import dataclass
+from typing import TypedDict
 
 from python.helpers import tokens
 
@@ -29,15 +29,47 @@ def is_binary(path: str) -> bool:
 
 
 # ------------------------------------------------------------------
+# File metadata
+# ------------------------------------------------------------------
+
+class FileInfo(TypedDict):
+    exists: bool
+    is_file: bool
+    realpath: str
+    expanded: str
+    mtime: float | None
+
+
+def file_info(path: str) -> FileInfo:
+    """Return file metadata for mtime tracking and path resolution."""
+    path = os.path.expanduser(path)
+    rp = os.path.realpath(path)
+    exists = os.path.exists(path)
+    is_file = os.path.isfile(path)
+    mtime = None
+    if exists:
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            pass
+    return FileInfo(
+        exists=exists,
+        is_file=is_file,
+        realpath=rp,
+        expanded=path,
+        mtime=mtime,
+    )
+
+
+# ------------------------------------------------------------------
 # Read
 # ------------------------------------------------------------------
 
-@dataclass
-class ReadResult:
-    content: str = ""
-    total_lines: int = 0
-    warnings: str = ""
-    error: str = ""
+class ReadResult(TypedDict):
+    content: str
+    total_lines: int
+    warnings: str
+    error: str
 
 
 def read_file(
@@ -58,16 +90,25 @@ def read_file(
     path = os.path.expanduser(path)
 
     if not os.path.isfile(path):
-        return ReadResult(error="file not found")
+        return ReadResult(
+            content="", total_lines=0, warnings="",
+            error="file not found",
+        )
 
     if is_binary(path):
-        return ReadResult(error="file appears binary, use terminal instead")
+        return ReadResult(
+            content="", total_lines=0, warnings="",
+            error="file appears binary, use terminal instead",
+        )
 
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             all_lines = f.readlines()
     except OSError as exc:
-        return ReadResult(error=str(exc))
+        return ReadResult(
+            content="", total_lines=0, warnings="",
+            error=str(exc),
+        )
 
     total_lines = len(all_lines)
     line_from = max(line_from, 1)
@@ -126,6 +167,7 @@ def read_file(
         content="\n".join(output_lines),
         total_lines=total_lines,
         warnings=warn_str,
+        error="",
     )
 
 
@@ -133,10 +175,9 @@ def read_file(
 # Write
 # ------------------------------------------------------------------
 
-@dataclass
-class WriteResult:
-    total_lines: int = 0
-    error: str = ""
+class WriteResult(TypedDict):
+    total_lines: int
+    error: str
 
 
 def write_file(path: str, content: str | None) -> WriteResult:
@@ -149,23 +190,22 @@ def write_file(path: str, content: str | None) -> WriteResult:
         with open(path, "w", encoding="utf-8") as f:
             f.write(content)
     except OSError as exc:
-        return WriteResult(error=str(exc))
+        return WriteResult(total_lines=0, error=str(exc))
 
     total = content.count("\n") + (
         1 if content and not content.endswith("\n") else 0
     )
-    return WriteResult(total_lines=total)
+    return WriteResult(total_lines=total, error="")
 
 
 # ------------------------------------------------------------------
 # Patch
 # ------------------------------------------------------------------
 
-@dataclass
-class PatchResult:
-    total_lines: int = 0
-    edit_count: int = 0
-    error: str = ""
+class PatchResult(TypedDict):
+    total_lines: int
+    edit_count: int
+    error: str
 
 
 def validate_edits(edits: list | None) -> tuple[list[dict], str]:
@@ -298,18 +338,18 @@ def patch_file(path: str, edits: list | None) -> PatchResult:
     """Validate and apply edits to a file."""
     path = os.path.expanduser(path)
     if not os.path.isfile(path):
-        return PatchResult(error="file not found")
+        return PatchResult(total_lines=0, edit_count=0, error="file not found")
 
     parsed, err = validate_edits(edits)
     if err:
-        return PatchResult(error=err)
+        return PatchResult(total_lines=0, edit_count=0, error=err)
 
     try:
         total = apply_patch(path, parsed)
     except Exception as exc:
-        return PatchResult(error=str(exc))
+        return PatchResult(total_lines=0, edit_count=0, error=str(exc))
 
-    return PatchResult(total_lines=total, edit_count=len(parsed))
+    return PatchResult(total_lines=total, edit_count=len(parsed), error="")
 
 
 # ------------------------------------------------------------------

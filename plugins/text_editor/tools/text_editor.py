@@ -1,13 +1,13 @@
-import os
-
 from python.helpers.tool import Tool, Response
 from python.helpers.extension import call_extensions
-from python.helpers import plugins
+from python.helpers import plugins, runtime
 from plugins.text_editor.helpers.file_ops import (
+    FileInfo,
     read_file,
     write_file,
     validate_edits,
     apply_patch,
+    file_info,
 )
 
 # Key used in agent.data to store file state for patch validation
@@ -42,7 +42,8 @@ class TextEditor(Tool):
         raw_to = kwargs.get("line_to")
         line_to = int(raw_to) if raw_to is not None else None
 
-        result = read_file(
+        result = await runtime.call_development_function(
+            read_file,
             path,
             line_from=line_from,
             line_to=line_to,
@@ -51,21 +52,25 @@ class TextEditor(Tool):
             max_total_read_tokens=cfg["max_total_read_tokens"],
         )
 
-        if result.error:
-            return self._error("read", path, result.error)
+        if result["error"]:
+            return self._error("read", path, result["error"])
 
-        _record_mtime(self.agent, os.path.expanduser(path), result.total_lines)
+        info = await runtime.call_development_function(file_info, path)
+        _record_mtime(self.agent, info, result["total_lines"])
 
         # Extension point
-        ext_data = {"content": result.content, "warnings": result.warnings}
+        ext_data = {
+            "content": result["content"],
+            "warnings": result["warnings"],
+        }
         await call_extensions(
             "text_editor_read_after", agent=self.agent, data=ext_data
         )
 
         msg = self.agent.read_prompt(
             "fw.text_editor.read_ok.md",
-            path=os.path.expanduser(path),
-            total_lines=str(result.total_lines),
+            path=info["expanded"],
+            total_lines=str(result["total_lines"]),
             warnings=ext_data["warnings"],
             content=ext_data["content"],
         )
@@ -74,7 +79,9 @@ class TextEditor(Tool):
     # ------------------------------------------------------------------
     # WRITE
     # ------------------------------------------------------------------
-    async def _write(self, path: str = "", content: str | None = "", **kwargs) -> Response:
+    async def _write(
+        self, path: str = "", content: str | None = "", **kwargs
+    ) -> Response:
         if not path:
             return self._error("write", path, "path is required")
 
@@ -84,34 +91,37 @@ class TextEditor(Tool):
             "text_editor_write_before", agent=self.agent, data=ext_data
         )
 
-        result = write_file(ext_data["path"], ext_data["content"])
+        result = await runtime.call_development_function(
+            write_file, ext_data["path"], ext_data["content"]
+        )
 
-        if result.error:
-            return self._error("write", path, result.error)
+        if result["error"]:
+            return self._error("write", path, result["error"])
 
         # Extension point
         await call_extensions(
             "text_editor_write_after", agent=self.agent,
-            data={"path": path, "total_lines": result.total_lines},
+            data={"path": path, "total_lines": result["total_lines"]},
         )
 
-        expanded = os.path.expanduser(path)
-        _record_mtime(self.agent, expanded, result.total_lines)
+        info = await runtime.call_development_function(file_info, path)
+        _record_mtime(self.agent, info, result["total_lines"])
 
         cfg = _get_config(self.agent)
-        read_result = read_file(
-            expanded,
+        read_result = await runtime.call_development_function(
+            read_file,
+            info["expanded"],
             line_from=1,
-            line_to=result.total_lines,
+            line_to=result["total_lines"],
             max_line_tokens=cfg["max_line_tokens"],
             max_total_read_tokens=cfg["max_total_read_tokens"],
         )
 
         msg = self.agent.read_prompt(
             "fw.text_editor.write_ok.md",
-            path=expanded,
-            total_lines=str(result.total_lines),
-            content=read_result.content,
+            path=info["expanded"],
+            total_lines=str(result["total_lines"]),
+            content=read_result["content"],
         )
         return Response(message=msg, break_loop=False)
 
@@ -122,14 +132,15 @@ class TextEditor(Tool):
         if not path:
             return self._error("patch", path, "path is required")
 
-        expanded = os.path.expanduser(path)
-        if not os.path.isfile(expanded):
+        info = await runtime.call_development_function(file_info, path)
+        if not info["is_file"]:
             return self._error("patch", path, "file not found")
 
-        stale_err = _check_mtime(self.agent, expanded)
+        expanded = info["expanded"]
+
+        stale_err = _check_mtime(self.agent, info)
         if stale_err:
             return self._error("patch", path, stale_err)
-
 
         parsed, err = validate_edits(edits)
         if err:
@@ -142,7 +153,9 @@ class TextEditor(Tool):
         )
 
         try:
-            total_lines = apply_patch(ext_data["path"], ext_data["edits"])
+            total_lines = await runtime.call_development_function(
+                apply_patch, ext_data["path"], ext_data["edits"]
+            )
         except Exception as exc:
             return self._error("patch", path, str(exc))
 
@@ -152,9 +165,15 @@ class TextEditor(Tool):
             data={"path": expanded, "total_lines": total_lines},
         )
 
-        _apply_patch_post(self.agent, expanded, total_lines, ext_data["edits"])
+        # Refresh file info after patch for updated mtime
+        post_info = await runtime.call_development_function(
+            file_info, expanded
+        )
+        _apply_patch_post(
+            self.agent, post_info, total_lines, ext_data["edits"]
+        )
 
-        patch_content = _read_patch_region(
+        patch_content = await _read_patch_region(
             expanded, ext_data["edits"], total_lines, _get_config(self.agent)
         )
 
@@ -181,7 +200,7 @@ class TextEditor(Tool):
 # Standalone helpers
 # ------------------------------------------------------------------
 
-def _read_patch_region(
+async def _read_patch_region(
     path: str, edits: list[dict], total_lines: int, cfg: dict
 ) -> str:
     if not edits:
@@ -200,31 +219,24 @@ def _read_patch_region(
     max_to = max(e["to"] for e in edits)
     end_line = max_to + added - removed + 3
 
-    result = read_file(
+    result = await runtime.call_development_function(
+        read_file,
         path,
         line_from=max(min_from - 1, 1),
         line_to=min(end_line, total_lines),
         max_line_tokens=cfg["max_line_tokens"],
         max_total_read_tokens=cfg["max_total_read_tokens"],
     )
-    return result.content
+    return result["content"]
 
 
-def _record_mtime(agent, path: str, total_lines: int):
+def _record_mtime(agent, info: FileInfo, total_lines: int):
     mtimes = agent.data.setdefault(_MTIME_KEY, {})
-    try:
-        mtimes[os.path.realpath(path)] = {
-            "mtime": os.path.getmtime(path),
+    if info["mtime"] is not None:
+        mtimes[info["realpath"]] = {
+            "mtime": info["mtime"],
             "total_lines": total_lines,
         }
-    except OSError:
-        pass
-
-
-def _clear_mtime(agent, path: str):
-    mtimes = agent.data.get(_MTIME_KEY)
-    if mtimes is not None:
-        mtimes.pop(os.path.realpath(path), None)
 
 
 def _count_content_lines(content: str) -> int:
@@ -244,53 +256,56 @@ def _all_edits_in_place(edits: list[dict]) -> bool:
     return True
 
 
-def _apply_patch_post(agent, path: str, new_total: int, edits: list[dict]):
+def _apply_patch_post(
+    agent, info: FileInfo, new_total: int, edits: list[dict]
+):
+    """Update mtime cache after a patch."""
+    mtimes = agent.data.setdefault(_MTIME_KEY, {})
+    real = info["realpath"]
 
     if not _all_edits_in_place(edits):
-        _clear_mtime(agent, path)
+        # Line count changed — mark stale so next patch gets
+        # "file changed since last read" instead of "line numbers unknown"
+        mtimes[real] = {"mtime": 0, "total_lines": 0}
         return
 
-    mtimes = agent.data.get(_MTIME_KEY)
-    if mtimes is None:
-        return
-    real = os.path.realpath(path)
     stored = mtimes.get(real)
     if not isinstance(stored, dict) or "total_lines" not in stored:
-        mtimes.pop(real, None)
+        mtimes[real] = {"mtime": 0, "total_lines": 0}
         return
     if new_total != stored["total_lines"]:
-        mtimes.pop(real, None)
+        mtimes[real] = {"mtime": 0, "total_lines": 0}
         return
-    try:
+    if info["mtime"] is not None:
         mtimes[real] = {
-            "mtime": os.path.getmtime(path),
+            "mtime": info["mtime"],
             "total_lines": new_total,
         }
-    except OSError:
-        mtimes.pop(real, None)
+    else:
+        mtimes[real] = {"mtime": 0, "total_lines": 0}
 
 
-def _check_mtime(agent, path: str) -> str:
+def _check_mtime(agent, info: FileInfo) -> str:
+    """Check if the file has been modified since last read."""
     mtimes = agent.data.get(_MTIME_KEY, {})
-    real = os.path.realpath(path)
+    real = info["realpath"]
     if real not in mtimes:
         return agent.read_prompt(
-            "fw.text_editor.patch_need_read.md", path=path
+            "fw.text_editor.patch_need_read.md", path=info["expanded"]
         )
     stored = mtimes[real]
     mtime = stored.get("mtime") if isinstance(stored, dict) else stored
     if mtime is None:
         mtimes.pop(real, None)
         return agent.read_prompt(
-            "fw.text_editor.patch_need_read.md", path=path
+            "fw.text_editor.patch_need_read.md", path=info["expanded"]
         )
-    try:
-        current = os.path.getmtime(path)
-    except OSError:
+    current = info["mtime"]
+    if current is None:
         return ""
     if current != mtime:
         return agent.read_prompt(
-            "fw.text_editor.patch_stale_read.md", path=path
+            "fw.text_editor.patch_stale_read.md", path=info["expanded"]
         )
     return ""
 
@@ -305,4 +320,3 @@ def _get_config(agent) -> dict:
         "default_line_count": int(config.get("default_line_count", 100)),
         "max_total_read_tokens": int(config.get("max_total_read_tokens", 4000)),
     }
-    
