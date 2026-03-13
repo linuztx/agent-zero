@@ -1,0 +1,8 @@
+name: _promptinclude
+title: Prompt Include
+description: Include *.promptinclude.md files from workdir in agent system prompt.
+version: 1.0.0
+settings_sections:
+  - agent
+per_project_config: true
+per_agent_config: true
