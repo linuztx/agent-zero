@@ -2,7 +2,7 @@
 
 import fnmatch
 import os
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 from pathspec import PathSpec
 
@@ -17,7 +17,7 @@ class FileEntry(TypedDict):
     path: str
     content: str
     token_count: int
-    status: str  # "ok" | "cropped" | "skipped"
+    status: Literal["ok", "cropped", "skipped"]
 
 
 class ScanResult(TypedDict):
