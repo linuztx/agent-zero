@@ -1,8 +1,11 @@
 import yaml
-from helpers import files
+from helpers import files, cache
 from typing import List, Dict, Optional, TypedDict, Literal
 
 ModelType = Literal["chat", "embedding"]
+
+PROVIDER_MANAGER_CACHE_AREA = "model_providers(plugins)"
+PROVIDER_MANAGER_CACHE_KEY = "manager"
 
 # Type alias for UI option items
 class FieldOption(TypedDict):
@@ -10,49 +13,82 @@ class FieldOption(TypedDict):
     label: str
 
 class ProviderManager:
-    _instance = None
     _raw: Optional[Dict[str, List[Dict[str, str]]]] = None  # full provider data
     _options: Optional[Dict[str, List[FieldOption]]] = None  # UI-friendly list
 
     @classmethod
     def get_instance(cls):
-        if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
+        instance = cache.get(PROVIDER_MANAGER_CACHE_AREA, PROVIDER_MANAGER_CACHE_KEY)
+        if instance is None:
+            instance = cls()
+            cache.add(PROVIDER_MANAGER_CACHE_AREA, PROVIDER_MANAGER_CACHE_KEY, instance)
+        return instance
+
+    @classmethod
+    def reload(cls):
+        """Force reload of all provider configs (call after plugin changes)."""
+        cache.remove(PROVIDER_MANAGER_CACHE_AREA, PROVIDER_MANAGER_CACHE_KEY)
+        inst = cls.get_instance()
+        inst._load_providers()
 
     def __init__(self):
         if self._raw is None or self._options is None:
             self._load_providers()
 
-    def _load_providers(self):
-        """Loads provider configurations from the YAML file and normalises them."""
+    @staticmethod
+    def _load_yaml(path: str) -> dict:
         try:
-            config_path = files.get_abs_path("conf/model_providers.yaml")
-            with open(config_path, "r", encoding="utf-8") as f:
-                raw_yaml = yaml.safe_load(f) or {}
+            with open(path, "r", encoding="utf-8") as f:
+                return yaml.safe_load(f) or {}
         except (FileNotFoundError, yaml.YAMLError):
-            raw_yaml = {}
+            return {}
 
-        # ------------------------------------------------------------
-        # Normalise the YAML so that internally we always work with a
-        # list-of-dicts [{id, name, ...}] for each provider type.  This
-        # keeps existing callers unchanged while allowing the new nested
-        # mapping format in the YAML (id -> { ... }).
-        # ------------------------------------------------------------
-        normalised: Dict[str, List[Dict[str, str]]] = {}
-
+    @staticmethod
+    def _normalise_yaml(raw_yaml: dict) -> Dict[str, Dict[str, Dict[str, str]]]:
+        """Normalise YAML into {type: {id: config}} mapping format."""
+        result: Dict[str, Dict[str, Dict[str, str]]] = {}
         for p_type, providers in (raw_yaml or {}).items():
-            items: List[Dict[str, str]] = []
-
+            entries: Dict[str, Dict[str, str]] = {}
             if isinstance(providers, dict):
-                # New format: mapping of id -> config
                 for pid, cfg in providers.items():
-                    entry = {"id": pid, **(cfg or {})}
-                    items.append(entry)
+                    entries[pid] = cfg or {}
             elif isinstance(providers, list):
-                # Legacy list format – use as-is
-                items.extend(providers or [])
+                for p in (providers or []):
+                    pid = (p.get("id") or p.get("value") or "").lower()
+                    if pid:
+                        entries[pid] = {k: v for k, v in p.items() if k not in ("id", "value")}
+            result[p_type] = entries
+        return result
 
+    def _load_providers(self):
+        """Loads provider configs from main YAML and enabled plugins, then merges."""
+        # Load base config
+        base_path = files.get_abs_path("conf/model_providers.yaml")
+        merged = self._normalise_yaml(self._load_yaml(base_path))
+
+        # Merge plugin provider configs (enabled plugins only)
+        from helpers.plugins import get_enabled_plugin_paths
+        plugin_yamls = get_enabled_plugin_paths(None, "conf", "model_providers.yaml")
+        for plugin_yaml_path in plugin_yamls:
+            plugin_data = self._normalise_yaml(self._load_yaml(plugin_yaml_path))
+            for p_type, providers in plugin_data.items():
+                if p_type not in merged:
+                    merged[p_type] = {}
+                # Overwrite matching keys, append new ones
+                merged[p_type].update(providers)
+
+        # Convert merged {type: {id: config}} to normalised list format,
+        # sorted by name with "other" always last.
+        normalised: Dict[str, List[Dict[str, str]]] = {}
+        for p_type, providers in merged.items():
+            items: List[Dict[str, str]] = []
+            for pid, cfg in providers.items():
+                entry = {"id": pid, **cfg}
+                items.append(entry)
+            items.sort(key=lambda p: (
+                p.get("id") == "other",  # False (0) first, True (1) last
+                (p.get("name") or p.get("id") or "").lower(),
+            ))
             normalised[p_type] = items
 
         # Save raw
@@ -99,3 +135,8 @@ def get_raw_providers(provider_type: ModelType) -> List[Dict[str, str]]:
 def get_provider_config(provider_type: ModelType, provider_id: str) -> Optional[Dict[str, str]]:
     """Return metadata for a single provider (None if not found)."""
     return ProviderManager.get_instance().get_provider_config(provider_type, provider_id)
+
+
+def reload_providers():
+    """Re-merge base + plugin provider configs. Call after plugin changes."""
+    ProviderManager.reload()

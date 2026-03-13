@@ -452,38 +452,43 @@ const model = {
   },
 
 
-  manageOpenPlugin() {
+  handleOpenPlugin() {
     const info = this.installedPluginInfo;
     if (!info || !info.name || !info.has_main_screen) return;
     openModal(`/plugins/${info.name}/webui/main.html`);
   },
 
-  async manageOpenConfig() {
+  async handleOpenConfig() {
     if (this.installedPluginInfo) {
       await pluginListStore.openPluginConfig(this.installedPluginInfo);
     }
   },
 
-  async manageOpenDoc(doc) {
+  async handleOpenDoc(doc) {
     if (this.installedPluginInfo) {
       await pluginListStore.openPluginDoc(this.installedPluginInfo, doc);
     }
   },
 
-  manageOpenInfo() {
+  handleOpenInfo() {
     if (this.installedPluginInfo) {
       pluginListStore.openPluginInfo(this.installedPluginInfo);
     }
   },
 
-  manageOpenInit() {
+  handleOpenInit() {
     if (this.installedPluginInfo) {
       pluginInitStore.open(this.installedPluginInfo);
     }
   },
 
-  async manageDeletePlugin() {
-    if (this.installedPluginInfo) {
+  async handleDeletePlugin() {
+    if (!this.installedPluginInfo) return;
+
+    try {
+      this.loading = true;
+      this.loadingMessage = "Uninstalling plugin...";
+
       await pluginListStore.deletePlugin(this.installedPluginInfo);
       const currentPlugin = this.selectedPlugin;
       if (currentPlugin) {
@@ -493,6 +498,9 @@ const model = {
         );
       }
       this.installedPluginInfo = null;
+    } finally {
+      this.loading = false;
+      this.loadingMessage = "";
     }
   },
 

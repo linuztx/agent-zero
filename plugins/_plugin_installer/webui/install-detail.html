@@ -61,36 +61,36 @@
                                 <div class="pi-hero-manage">
                                     <template x-if="$store.pluginInstallStore.installedPluginInfo.has_main_screen">
                                         <button type="button" class="button"
-                                            @click="$store.pluginInstallStore.manageOpenPlugin()">
+                                            @click="$store.pluginInstallStore.handleOpenPlugin()">
                                             <span class="icon material-symbols-outlined">dashboard</span> Open
                                         </button>
                                     </template>
                                     <template x-if="$store.pluginInstallStore.installedPluginInfo.has_config_screen">
                                         <button type="button" class="button"
-                                            @click="$store.pluginInstallStore.manageOpenConfig()">
+                                            @click="$store.pluginInstallStore.handleOpenConfig()">
                                             <span class="icon material-symbols-outlined">settings</span> Config
                                         </button>
                                     </template>
                                     <template x-if="$store.pluginInstallStore.installedPluginInfo.has_readme">
                                         <button type="button" class="button"
-                                            @click="$store.pluginInstallStore.manageOpenDoc('readme')">
+                                            @click="$store.pluginInstallStore.handleOpenDoc('readme')">
                                             <span class="icon material-symbols-outlined">description</span> README
                                         </button>
                                     </template>
                                     <template x-if="$store.pluginInstallStore.installedPluginInfo.has_license">
                                         <button type="button" class="button"
-                                            @click="$store.pluginInstallStore.manageOpenDoc('license')">
+                                            @click="$store.pluginInstallStore.handleOpenDoc('license')">
                                             <span class="icon material-symbols-outlined">gavel</span> License
                                         </button>
                                     </template>
                                     <template x-if="$store.pluginInstallStore.installedPluginInfo.has_init_script">
                                         <button type="button" class="button"
-                                            @click="$store.pluginInstallStore.manageOpenInit()">
+                                            @click="$store.pluginInstallStore.handleOpenInit()">
                                             <span class="icon material-symbols-outlined">terminal</span> Init
                                         </button>
                                     </template>
                                     <button type="button" class="button"
-                                        @click="$store.pluginInstallStore.manageOpenInfo()">
+                                        @click="$store.pluginInstallStore.handleOpenInfo()">
                                         <span class="icon material-symbols-outlined">info</span> Info
                                     </button>
                                 </div>
@@ -135,9 +135,18 @@
                     </template>
                     <template x-if="$store.pluginInstallStore.selectedPlugin.installed && $store.pluginInstallStore.installedPluginInfo?.is_custom">
                         <button type="button" class="pi-btn-uninstall"
-                            @click="$confirmClick($event, () => $store.pluginInstallStore.manageDeletePlugin())">
-                            <span class="material-symbols-outlined">delete</span>
-                            <span>Uninstall</span>
+                            @click="$confirmClick($event, () => $store.pluginInstallStore.handleDeletePlugin())"
+                            :disabled="$store.pluginInstallStore.loading">
+                            <span class="pi-btn-loading" x-show="$store.pluginInstallStore.loading">
+                                <span class="spinner"></span>
+                                <span x-text="$store.pluginInstallStore.loadingMessage || 'Uninstalling...'"></span>
+                            </span>
+                            <span x-show="!$store.pluginInstallStore.loading">
+                                <span class="material-symbols-outlined">delete</span>
+                            </span>
+                            <span x-show="!$store.pluginInstallStore.loading">
+                                <span>Uninstall</span>
+                            </span>
                         </button>
                     </template>
                     <template x-if="$store.pluginInstallStore.selectedPlugin.discussion">
@@ -414,6 +423,11 @@
             box-shadow: 0 4px 12px rgba(0,0,0,0.15);
             background: var(--color-accent);
             color: #fff;
+        }
+
+        .pi-btn-uninstall:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
         }
 
         .pi-btn-uninstall .material-symbols-outlined {

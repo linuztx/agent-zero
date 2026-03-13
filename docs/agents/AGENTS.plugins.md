@@ -25,9 +25,12 @@ Each plugin lives in usr/plugins/<plugin_name>/.
 usr/plugins/<plugin_name>/
 ├── plugin.yaml                   # Required: Title, version, settings + activation metadata
 ├── initialize.py                 # Optional: one-time setup script (dependencies, models, etc.)
+├── hooks.py                      # Optional: runtime hook functions callable by the framework
 ├── default_config.yaml           # Optional: fallback settings defaults
 ├── README.md                     # Optional: shown in Plugin List UI
 ├── LICENSE                       # Optional: shown in Plugin List UI
+├── conf/
+│   └── model_providers.yaml      # Optional: add or override model providers
 ├── api/                          # API handlers (ApiHandler subclasses)
 ├── tools/                        # Agent tools (Tool subclasses)
 ├── helpers/                      # Shared Python logic
@@ -65,6 +68,36 @@ Field reference:
 - `per_project_config`: Enables project-scoped settings and toggle rules
 - `per_agent_config`: Enables agent-profile-scoped settings and toggle rules
 - `always_enabled`: Forces ON and disables toggle controls in the UI (reserved for framework use)
+
+### hooks.py (framework runtime hooks)
+
+Plugins can include an optional `hooks.py` file at the plugin root. Agent Zero loads this module on demand and calls exported functions by name through `helpers.plugins.call_plugin_hook(...)`.
+
+- `hooks.py` runs inside the **Agent Zero framework runtime and Python environment**, not the separate agent execution environment.
+- Use it for framework-internal operations such as install-time setup, plugin registration work, filesystem preparation, cache updates, or other tasks that need access to Agent Zero internals.
+- Hook functions may be synchronous or async. Async hooks are awaited by the framework.
+- Hook modules are cached until plugin caches are cleared, so changes may require a plugin refresh/reload cycle.
+
+Current example: the plugin installer calls `install()` from `hooks.py` after a plugin is copied into place.
+
+### Runtime and dependency implications
+
+- If `hooks.py` installs Python packages with `sys.executable -m pip`, those packages are installed into the **same Python environment that runs Agent Zero itself**.
+- This is the correct place for Python dependencies that your plugin's backend code needs while running inside the framework runtime.
+- It is **not** the right place for dependencies meant only for the separate agent execution runtime or for arbitrary system-level tooling.
+
+If your plugin needs to install packages or binaries for the agent execution environment instead of the framework runtime, launch a subprocess that explicitly activates or targets that other environment first. In practice this means invoking the correct interpreter or shell for that environment rather than relying on the current process environment. For example:
+
+- target a specific Python interpreter path for that runtime
+- activate the desired virtualenv inside a subprocess shell command before running `pip`
+- invoke the appropriate package manager from a subprocess prepared for that environment
+
+In Docker deployments, this distinction is especially important:
+
+- Framework runtime: `/opt/venv-a0`
+- Agent execution runtime: `/opt/venv`
+
+So a `hooks.py` install step affects `/opt/venv-a0` unless you intentionally switch to `/opt/venv` (or another target) inside your subprocess.
 
 ---
 
@@ -106,7 +139,35 @@ See [Notifications](../developer/notifications.md) for the full API.
 4. usr/plugins/<name>/config.json
 5. plugins/<name>/default_config.yaml (fallback defaults)
 
-## 5. Plugin Activation Model
+## 5. Model Providers
+
+Plugins can add or override model providers by placing a `conf/model_providers.yaml` inside their plugin directory. The file follows the same format as the main `conf/model_providers.yaml`.
+
+At startup (and whenever a plugin is enabled/disabled), the system:
+1. Loads the base `conf/model_providers.yaml`.
+2. Discovers `conf/model_providers.yaml` from all enabled plugins.
+3. Merges them in order — matching provider IDs are overwritten, new IDs are appended.
+
+Example plugin provider file (`usr/plugins/my_plugin/conf/model_providers.yaml`):
+```yaml
+chat:
+  my_custom_provider:
+    name: My Custom LLM
+    litellm_provider: openai
+    kwargs:
+      api_base: https://my-llm.example.com/v1
+
+embedding:
+  my_custom_embed:
+    name: My Embeddings
+    litellm_provider: openai
+    kwargs:
+      api_base: https://my-embed.example.com/v1
+```
+
+---
+
+## 6. Plugin Activation Model
 
 - Global and scoped activation are independent, with no inheritance between scopes.
 - Activation flags are files: `.toggle-1` (ON) and `.toggle-0` (OFF).
@@ -116,7 +177,7 @@ See [Notifications](../developer/notifications.md) for the full API.
 
 ---
 
-## 6. Routes
+## 7. Routes
 
 | Route | Purpose |
 |---|---|
@@ -126,7 +187,7 @@ See [Notifications](../developer/notifications.md) for the full API.
 
 ---
 
-## 7. Plugin Index & Community Sharing
+## 8. Plugin Index & Community Sharing
 
 The **Plugin Index** is a community-maintained repository at https://github.com/agent0ai/a0-plugins that lists plugins available to the Agent Zero community. Plugins listed there can be discovered and installed by other users.
 

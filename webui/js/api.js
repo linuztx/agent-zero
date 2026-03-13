@@ -219,7 +219,7 @@ export async function getCsrfToken() {
       if (cookieRuntimeId) {
         const _secureFlag =
           window.location.protocol === "https:" ? "; Secure" : "";
-        document.cookie = `csrf_token_${cookieRuntimeId}=${csrfToken}; SameSite=Strict; Path=/${_secureFlag}`;
+        document.cookie = `csrf_token_${cookieRuntimeId}=${csrfToken}; SameSite=Lax; Path=/${_secureFlag}`;
       } else {
         console.warn("CSRF runtime id missing; skipping cookie name binding.");
       }
