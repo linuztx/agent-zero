@@ -228,6 +228,8 @@ async def _fetch_exchange(
 
 
 async def _dispatch_all(handler_cfg: dict, messages: list[InboundMessage]):
+    own_address = (handler_cfg.get("username") or "").lower()
+
     # Need an agent for dispatcher AI calls — use first available or create temp
     ctx = AgentContext.first()
     if not ctx:
@@ -237,6 +239,9 @@ async def _dispatch_all(handler_cfg: dict, messages: list[InboundMessage]):
     agent = ctx.agent0
 
     for msg in messages:
+        if own_address and _is_own_email(msg.sender, own_address):
+            PrintStyle.info(f"Email: skipping self-sent from {msg.sender}")
+            continue
         try:
             await _dispatch_message(agent, handler_cfg, msg)
         except Exception as e:
@@ -428,6 +433,19 @@ def _get_history_preview(ctx: AgentContext) -> str:
         return text
     except Exception:
         return "(unavailable)"
+
+
+# ------------------------------------------------------------------
+# Sender helpers
+# ------------------------------------------------------------------
+
+def _is_own_email(sender: str, own_address: str) -> bool:
+    sender_lower = sender.lower()
+    if "<" in sender_lower:
+        start = sender_lower.index("<") + 1
+        end = sender_lower.index(">", start)
+        return sender_lower[start:end].strip() == own_address
+    return sender_lower.strip() == own_address
 
 
 # ------------------------------------------------------------------
