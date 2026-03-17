@@ -8,10 +8,14 @@ import asyncio
 import base64
 import json
 import os
+from datetime import datetime, timezone
+
+from crontab import CronTab
 
 from agent import Agent, AgentContext, AgentContextType, UserMessage
 from helpers import guids, plugins, files, runtime
 from helpers import message_queue as mq
+from helpers.defer import DeferredTask
 from helpers.notification import NotificationManager, NotificationType, NotificationPriority
 from helpers.persist_chat import save_tmp_chat
 from helpers.print_style import PrintStyle
@@ -38,15 +42,98 @@ STATE_FILE = "usr/email/state.json"
 
 
 # ------------------------------------------------------------------
-# UID state persistence
+# Poll management
 # ------------------------------------------------------------------
 
-_state_lock = asyncio.Lock()
+DEFAULT_INTERVAL: int = 15
+MIN_INTERVAL: int = 5
+POLL_CHECK_INTERVAL: int = 5
 
-# Poll task registry — lives here (not in extension module) because
-# extension modules are re-executed on each job_loop tick (cache disabled),
-# which would reset module-level state and orphan running tasks.
-_poll_tasks: dict[str, asyncio.Task] = {}  # type: ignore[type-arg]
+_state_lock = asyncio.Lock()
+_poll_thread: DeferredTask | None = None
+_handler_tasks: dict[str, asyncio.Task] = {}  # type: ignore[type-arg]
+
+
+def ensure_poll_running():
+    global _poll_thread
+    if _poll_thread and not _poll_thread.is_ready():
+        return
+    _poll_thread = DeferredTask(thread_name="EmailPoll")
+    _poll_thread.start_task(_poll_loop)
+
+
+async def _poll_loop():
+    while True:
+        try:
+            config = plugins.get_plugin_config(PLUGIN_NAME) or {}
+            handlers = config.get("handlers", [])
+            enabled = {
+                h["name"] for h in handlers
+                if h.get("enabled") and h.get("name")
+            }
+
+            for name in list(_handler_tasks):
+                if name not in enabled or _handler_tasks[name].done():
+                    task = _handler_tasks.pop(name, None)
+                    if task and not task.done():
+                        task.cancel()
+
+            for name in enabled:
+                if name not in _handler_tasks or _handler_tasks[name].done():
+                    _handler_tasks[name] = asyncio.create_task(
+                        _handler_poll_loop(name)
+                    )
+        except Exception as e:
+            PrintStyle.error(f"Email poll manager: {format_error(e)}")
+
+        await asyncio.sleep(POLL_CHECK_INTERVAL)
+
+
+async def _handler_poll_loop(handler_name: str) -> None:
+    last_unread_days = 0
+
+    while True:
+        config = plugins.get_plugin_config(PLUGIN_NAME) or {}
+        handlers = config.get("handlers", [])
+        handler_cfg = next(
+            (h for h in handlers if h.get("name") == handler_name and h.get("enabled")),
+            None,
+        )
+        if handler_cfg is None:
+            break
+
+        try:
+            async with _state_lock:
+                state = _load_state()
+                unread_days = int(handler_cfg.get("process_unread_days", 0))
+                if unread_days > 0 and unread_days != last_unread_days:
+                    state.pop(handler_name, None)
+                last_unread_days = unread_days
+                await _poll_single_handler(handler_cfg, state)
+                _save_state(state)
+        except Exception as e:
+            PrintStyle.error(f"Email poll error ({handler_name}): {format_error(e)}")
+
+        sleep_sec = _get_sleep_seconds(handler_cfg)
+        await asyncio.sleep(sleep_sec)
+
+
+def _get_sleep_seconds(handler_cfg: dict) -> float:
+    mode = handler_cfg.get("poll_mode", "seconds")
+    if mode == "cron":
+        expr = handler_cfg.get("poll_interval_cron", "*/2 * * * *")
+        try:
+            cron = CronTab(expr)
+            next_sec = cron.next(now=datetime.now(timezone.utc))  # type: ignore[union-attr]
+            return max(next_sec, MIN_INTERVAL)
+        except Exception:
+            return DEFAULT_INTERVAL
+    return max(handler_cfg.get("poll_interval_seconds", DEFAULT_INTERVAL), MIN_INTERVAL)
+
+
+# ------------------------------------------------------------------
+# UID state persistence
+# ------------------------------------------------------------------
 
 def _load_state() -> dict:
     path = files.get_abs_path(STATE_FILE)
