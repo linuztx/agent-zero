@@ -9,8 +9,12 @@ import os
 from dataclasses import dataclass, field
 from typing import Any, Callable, Awaitable
 
+import asyncio
+
 from neonize.aioze.client import NewAClient
-from neonize.aioze.events import ConnectedEv, MessageEv
+from neonize.aioze.events import (
+    ConnectedEv, MessageEv, KeepAliveTimeoutEv, KeepAliveRestoredEv,
+)
 from neonize.utils.jid import Jid2String
 
 
@@ -44,6 +48,9 @@ def create_client(name: str, db_path: str) -> NewAClient:
     return NewAClient(db_path)
 
 
+MAX_KEEPALIVE_FAILURES = 3
+
+
 async def connect_client(
     client: NewAClient,
     message_callback: Callable[["InboundMessage"], Awaitable[None]],
@@ -51,6 +58,9 @@ async def connect_client(
     connected_callback: Callable[[], Awaitable[None]] | None = None,
 ) -> None:
     from helpers.print_style import PrintStyle
+
+    connection_dead = asyncio.Event()
+    keepalive_failures = 0
 
     @client.event(ConnectedEv)
     async def on_connected(_client: NewAClient, _ev: ConnectedEv) -> None:
@@ -70,6 +80,23 @@ async def connect_client(
             from helpers.errors import format_error
             PrintStyle.error(f"WhatsApp: message event error: {format_error(e)}")
 
+    @client.event(KeepAliveTimeoutEv)
+    async def on_keepalive_timeout(_client: NewAClient, _ev: KeepAliveTimeoutEv) -> None:
+        nonlocal keepalive_failures
+        keepalive_failures += 1
+        PrintStyle.warning(
+            f"WhatsApp: keepalive timeout ({keepalive_failures}/{MAX_KEEPALIVE_FAILURES})"
+        )
+        if keepalive_failures >= MAX_KEEPALIVE_FAILURES:
+            connection_dead.set()
+
+    @client.event(KeepAliveRestoredEv)
+    async def on_keepalive_restored(_client: NewAClient, _ev: KeepAliveRestoredEv) -> None:
+        nonlocal keepalive_failures
+        if keepalive_failures > 0:
+            PrintStyle.info("WhatsApp: keepalive restored")
+            keepalive_failures = 0
+
     @client.qr
     async def on_qr(_client: NewAClient, qr_data: bytes) -> None:
         PrintStyle.info(f"WhatsApp: QR code received ({len(qr_data)} bytes)")
@@ -79,7 +106,25 @@ async def connect_client(
     PrintStyle.info("WhatsApp: connecting...")
     await client.connect()
     PrintStyle.info("WhatsApp: connect() returned, waiting on idle()...")
-    await client.idle()
+
+    # Wait for either idle() to complete or connection death from keepalive timeouts
+    idle_task = asyncio.create_task(client.idle())
+    death_task = asyncio.create_task(connection_dead.wait())
+
+    try:
+        done, pending = await asyncio.wait(
+            [idle_task, death_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for t in pending:
+            t.cancel()
+    except asyncio.CancelledError:
+        idle_task.cancel()
+        death_task.cancel()
+        raise
+
+    if death_task in done:
+        PrintStyle.warning("WhatsApp: connection dead after keepalive timeouts, reconnecting...")
 
 
 async def disconnect_client(client: NewAClient) -> None:
