@@ -1,0 +1,311 @@
+<html>
+<head>
+    <title>WhatsApp Integration</title>
+</head>
+
+<body>
+    <div x-data="{
+        get handlers() { return config?.handlers || [] },
+        editing: null,
+        testing: null,
+        test_results: null,
+        qr_polling: null,
+        qr_image: null,
+        qr_message: '',
+        qr_interval: null,
+        connected: {},
+        projects: [],
+        async init() {
+            try {
+                const { callJsonApi } = await import('/js/api.js');
+                const res = await callJsonApi('projects', { action: 'list' });
+                this.projects = res.data || [];
+            } catch (e) { this.projects = []; }
+        },
+        add_handler() {
+            if (!config.handlers) config.handlers = [];
+            config.handlers.push({
+                name: 'whatsapp_' + (config.handlers.length + 1),
+                enabled: false,
+                phone_number: '',
+                allowed_users: [],
+                allow_groups: false,
+                project: '',
+                agent_instructions: ''
+            });
+            this.editing = config.handlers.length - 1;
+        },
+        async remove_handler(idx) {
+            const handler = config.handlers[idx];
+            if (handler && handler.name) {
+                try {
+                    const { callJsonApi } = await import('/js/api.js');
+                    await callJsonApi('/plugins/_whatsapp_integration/delete_session', {
+                        handler_name: handler.name
+                    });
+                } catch (e) { /* best effort */ }
+            }
+            config.handlers.splice(idx, 1);
+            this.editing = null;
+            this.stop_qr_poll();
+        },
+        users_text(handler) {
+            return (handler.allowed_users || []).join(', ');
+        },
+        set_users(handler, val) {
+            handler.allowed_users = val.split(',').map(s => s.trim()).filter(s => s);
+        },
+        async check_connection(handler) {
+            if (!handler.name) return;
+            try {
+                const { callJsonApi } = await import('/js/api.js');
+                const res = await callJsonApi('/plugins/_whatsapp_integration/test_connection', {
+                    handler: handler
+                });
+                const ok = res.results && res.results.length > 0 && res.results[0].ok;
+                this.connected = {...this.connected, [handler.name]: !!ok};
+            } catch (e) {
+                this.connected = {...this.connected, [handler.name]: false};
+            }
+        },
+        async test_connection(idx) {
+            this.testing = idx;
+            this.test_results = null;
+            try {
+                const { callJsonApi } = await import('/js/api.js');
+                const res = await callJsonApi('/plugins/_whatsapp_integration/test_connection', {
+                    handler: this.handlers[idx]
+                });
+                this.test_results = res;
+            } catch (e) {
+                this.test_results = { success: false, results: [{ test: 'Connection', ok: false, message: String(e) }] };
+            }
+            this.testing = null;
+        },
+        async fetch_qr(handler) {
+            this.qr_polling = handler.name;
+            try {
+                const { callJsonApi } = await import('/js/api.js');
+                const res = await callJsonApi('/plugins/_whatsapp_integration/qr_code', {
+                    handler_name: handler.name,
+                    handler: handler
+                });
+                if (res.connected) {
+                    this.connected = {...this.connected, [handler.name]: true};
+                    this.stop_qr_poll();
+                    return;
+                }
+                this.qr_image = res.qr_image || null;
+                this.qr_message = res.message || '';
+            } catch (e) {
+                this.qr_message = String(e);
+                this.qr_image = null;
+            }
+            this.qr_polling = null;
+        },
+        start_qr_poll(handler) {
+            this.stop_qr_poll();
+            this.fetch_qr(handler);
+            this.qr_interval = setInterval(() => this.fetch_qr(handler), 5000);
+        },
+        stop_qr_poll() {
+            if (this.qr_interval) {
+                clearInterval(this.qr_interval);
+                this.qr_interval = null;
+            }
+            this.qr_image = null;
+            this.qr_message = '';
+            this.qr_polling = null;
+        }
+    }">
+        <template x-if="config">
+            <div>
+                <div class="section-title">WhatsApp Integration</div>
+                <div class="section-description">
+                    Configure WhatsApp handlers to communicate with Agent Zero via WhatsApp.
+                    Each handler connects a WhatsApp account via QR code scanning.
+                </div>
+
+                <!-- Handler list -->
+                <template x-for="(handler, idx) in handlers" :key="idx">
+                    <div style="border: 1px solid var(--border-color, #333); border-radius: 8px; padding: 12px; margin-bottom: 8px; margin-top: 8px;">
+
+                        <!-- Header row -->
+                        <div style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;"
+                             @click="editing = editing === idx ? null : idx; editing === idx ? check_connection(handler) : stop_qr_poll();">
+                            <div>
+                                <span style="font-weight: bold;" x-text="handler.name"></span>
+                                <span style="opacity: 0.6; margin-left: 8px;" x-text="handler.enabled ? 'Enabled' : 'Disabled'"></span>
+                            </div>
+                            <button class="btn btn-action delete" @click.stop="$confirmClick($event, () => remove_handler(idx))" title="Remove handler">
+                                <span class="material-symbols-outlined">delete</span>
+                            </button>
+                        </div>
+
+                        <!-- Expanded editor -->
+                        <template x-if="editing === idx">
+                            <div style="margin-top: 16px;">
+
+                                <div class="field">
+                                    <div class="field-label">
+                                        <div class="field-title">Enabled</div>
+                                        <div class="field-description">Enable or disable this WhatsApp handler</div>
+                                    </div>
+                                    <div class="field-control">
+                                        <label class="toggle">
+                                            <input type="checkbox" x-model="handler.enabled" />
+                                            <span class="toggler"></span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="field">
+                                    <div class="field-label">
+                                        <div class="field-title">Handler Name</div>
+                                        <div class="field-description">Unique identifier for this WhatsApp handler</div>
+                                    </div>
+                                    <div class="field-control">
+                                        <input type="text" x-model="handler.name" placeholder="e.g. my_whatsapp" />
+                                    </div>
+                                </div>
+
+                                <div class="field">
+                                    <div class="field-label">
+                                        <div class="field-title">Phone Number</div>
+                                        <div class="field-description">WhatsApp phone number (informational only)</div>
+                                    </div>
+                                    <div class="field-control">
+                                        <input type="text" x-model="handler.phone_number" placeholder="+1234567890" />
+                                    </div>
+                                </div>
+
+                                <!-- QR Code section - only when handler is enabled and not connected -->
+                                <template x-if="handler.enabled && !connected[handler.name]">
+                                    <div class="field">
+                                        <div class="field-label">
+                                            <div class="field-title">WhatsApp Link</div>
+                                            <div class="field-description">Scan QR code with WhatsApp to link this device</div>
+                                        </div>
+                                        <div class="field-control" style="flex-direction: column; align-items: flex-start; gap: 8px;">
+                                            <button class="btn btn-field" @click.stop="start_qr_poll(handler)"
+                                                    :disabled="qr_polling === handler.name">
+                                                <span x-show="qr_polling !== handler.name">Show QR Code</span>
+                                                <span x-show="qr_polling === handler.name">Loading...</span>
+                                            </button>
+
+                                            <template x-if="qr_image">
+                                                <div>
+                                                    <img :src="'data:image/png;base64,' + qr_image"
+                                                         style="max-width: 256px; border-radius: 8px; border: 1px solid var(--border-color, #333);" />
+                                                    <div style="opacity: 0.6; font-size: 0.8rem; margin-top: 4px;">
+                                                        Auto-refreshes every 5 seconds
+                                                    </div>
+                                                </div>
+                                            </template>
+
+                                            <template x-if="qr_message && !qr_image">
+                                                <div style="opacity: 0.7; font-size: 0.85rem;" x-text="qr_message"></div>
+                                            </template>
+                                        </div>
+                                    </div>
+                                </template>
+
+                                <!-- Connected status -->
+                                <template x-if="handler.enabled && connected[handler.name]">
+                                    <div class="field">
+                                        <div class="field-label">
+                                            <div class="field-title">WhatsApp Link</div>
+                                            <div class="field-description">WhatsApp connection status</div>
+                                        </div>
+                                        <div class="field-control">
+                                            <div style="color: #4caf50; font-weight: bold;">Connected</div>
+                                        </div>
+                                    </div>
+                                </template>
+
+                                <div class="field">
+                                    <div class="field-label">
+                                        <div class="field-title">Allowed Users</div>
+                                        <div class="field-description">Comma-separated phone numbers. Empty = allow all</div>
+                                    </div>
+                                    <div class="field-control">
+                                        <input type="text" :value="users_text(handler)" @input="set_users(handler, $event.target.value)" placeholder="1234567890, 0987654321" />
+                                    </div>
+                                </div>
+
+                                <div class="field">
+                                    <div class="field-label">
+                                        <div class="field-title">Allow Groups</div>
+                                        <div class="field-description">Enable to allow the bot to respond in WhatsApp group chats</div>
+                                    </div>
+                                    <div class="field-control">
+                                        <label class="toggle">
+                                            <input type="checkbox" x-model="handler.allow_groups" />
+                                            <span class="toggler"></span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="field">
+                                    <div class="field-label">
+                                        <div class="field-title">Project</div>
+                                        <div class="field-description">Project to activate for WhatsApp chats</div>
+                                    </div>
+                                    <div class="field-control">
+                                        <select :value="handler.project" @change="handler.project = $event.target.value">
+                                            <option value="">No project</option>
+                                            <template x-for="proj in projects" :key="proj.name">
+                                                <option :value="proj.name" x-text="proj.title || proj.name" :selected="handler.project === proj.name"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div class="field">
+                                    <div class="field-label">
+                                        <div class="field-title">Agent Instructions</div>
+                                        <div class="field-description">Extra instructions for the agent in WhatsApp chats</div>
+                                    </div>
+                                    <div class="field-control">
+                                        <textarea x-model="handler.agent_instructions" rows="3" placeholder="e.g. Always respond concisely..."></textarea>
+                                    </div>
+                                </div>
+
+                                <!-- Test connection -->
+                                <div style="margin-top: 12px; display: flex; align-items: center; gap: 12px;">
+                                    <button class="btn btn-field" @click.stop="test_connection(idx)"
+                                            :disabled="testing === idx">
+                                        <span x-show="testing !== idx">Test Connection</span>
+                                        <span x-show="testing === idx">Testing...</span>
+                                    </button>
+                                </div>
+
+                                <!-- Test results -->
+                                <template x-if="test_results && editing === idx">
+                                    <div style="margin-top: 8px; padding: 8px 12px; border-radius: 6px; font-size: 0.85rem;
+                                                border: 1px solid var(--border-color, #333);">
+                                        <template x-for="r in test_results.results" :key="r.test">
+                                            <div style="display: flex; align-items: center; gap: 8px; padding: 4px 0;">
+                                                <span x-text="r.ok ? '✓' : '✗'"
+                                                      :style="'font-weight: bold; color:' + (r.ok ? '#4caf50' : '#f44336')"></span>
+                                                <span style="font-weight: 500; min-width: 50px;" x-text="r.test"></span>
+                                                <span style="opacity: 0.8;" x-text="r.message"></span>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </template>
+
+                            </div>
+                        </template>
+                    </div>
+                </template>
+
+                <button class="btn btn-field" @click="add_handler()" style="margin-top: 8px;">
+                    Add Handler
+                </button>
+            </div>
+        </template>
+    </div>
+</body>
+
+</html>

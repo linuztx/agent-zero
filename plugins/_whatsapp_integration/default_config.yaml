@@ -1,0 +1,9 @@
+handlers: []
+# Example handler:
+# - name: my_whatsapp
+#   enabled: true
+#   phone_number: ""
+#   allowed_users: []
+#   allow_groups: false
+#   project: ""
+#   agent_instructions: ""
