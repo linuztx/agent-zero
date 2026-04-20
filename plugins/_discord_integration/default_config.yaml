@@ -1,0 +1,16 @@
+bots: []
+# Example bot:
+# - name: my_bot
+#   enabled: true
+#   notify_messages: false       # Show a WebUI notification for each incoming Discord message.
+#   token: ""                    # Bot token from the Discord Developer Portal (Bot → Token).
+#   client_id: ""                # Application (client) ID — used to build the invite URL. Auto-populated after a successful connection test.
+#   allowed_users: []            # Discord user IDs (string or int). Empty = allow everyone.
+#   allowed_guilds: []           # Discord guild IDs. Empty = respond in any guild the bot is in.
+#   server_mode: mention         # mention (respond when @mentioned or replied to) | all (respond to every message) | off (DMs only)
+#   welcome_enabled: false       # Send a greeting when someone joins the guild. Requires the Server Members privileged intent.
+#   welcome_message: ""          # Welcome template. Use {name} for the new member's name. Default: "Welcome, {name}!"
+#   user_projects: {}            # Map Discord user_id (as string) to project name, e.g. { "123456789": "my_project" }
+#   default_project: ""          # Fallback project if user not in user_projects.
+#   attachment_max_age_hours: 0  # Hours to keep downloaded attachments. 0 = keep forever.
+#   agent_instructions: ""       # Extra instructions for the agent in Discord chats.

@@ -1,0 +1,1 @@
+discord update failed: {{error}}
