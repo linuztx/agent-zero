@@ -1,0 +1,2 @@
+# Slack custom rules
+{{instructions}}

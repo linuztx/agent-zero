@@ -1,0 +1,20 @@
+handlers: []
+# Example handler:
+# - name: acme                       # unique slug, identifies the listener
+#   enabled: true
+#   bot_token: "xoxb-..."            # Bot User OAuth Token
+#   app_token: "xapp-..."            # App-Level Token with connections:write (Socket Mode)
+#   team_id: ""                      # filled in automatically by test_connection
+#   bot_user_id: ""                  # filled in automatically; used to filter own messages
+#   listen_dm: true                  # respond to direct messages
+#   listen_channels: true            # respond to channel messages and @app_mention events
+#   allowed_channels: []             # channel IDs (empty = all channels where bot is invited)
+#   allowed_users: []                # user IDs (empty = all users)
+#   denied_users: []                 # user IDs to always ignore
+#   use_thinking_reaction: true      # add :thinking_face: while processing
+#   thinking_emoji: "thinking_face"
+#   markdown_mode: "mrkdwn"          # mrkdwn (default) or blocks (reserved)
+#   project: ""                      # activate project for new Slack chats
+#   chat_model_preset: ""            # optional preset from Model Configuration
+#   agent_instructions: ""           # extra agent guidance injected into system prompt
+#   max_upload_size_mb: 25

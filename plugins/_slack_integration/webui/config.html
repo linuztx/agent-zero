@@ -1,0 +1,284 @@
+<html>
+
+<head>
+    <title>Slack Integration</title>
+    <script type="module">
+        import { store } from "/plugins/_slack_integration/webui/slack-config-store.js";
+    </script>
+</head>
+
+<body>
+    <div x-data x-init="$store.slackConfig.init(config, context)" x-destroy="$store.slackConfig.cleanup()">
+        <template x-if="config">
+            <div class="slack-settings">
+                <div class="section-title">Slack</div>
+
+                <template x-if="$store.slackConfig.didInit && $store.slackConfig.handlers.length === 0">
+                    <div class="slack-empty">
+                        <div class="slack-empty-title">Connect Agent Zero to a Slack workspace</div>
+                        <div class="slack-empty-copy">
+                            You will need a Slack app with Socket Mode enabled. The plugin README includes a manifest you can paste to create one.
+                        </div>
+                        <button class="btn btn-field" @click="$store.slackConfig.addHandler()">
+                            Add workspace
+                        </button>
+                    </div>
+                </template>
+
+                <template x-for="(handler, idx) in $store.slackConfig.handlers" :key="idx">
+                    <div class="slack-card">
+                        <div class="slack-card-header" @click="$store.slackConfig.toggleEditing(idx)">
+                            <div class="slack-card-heading">
+                                <div class="slack-card-title" x-text="$store.slackConfig.handlerTitle(handler, idx)"></div>
+                                <div class="slack-card-subtitle" x-text="$store.slackConfig.handlerSubtitle(handler)"></div>
+                            </div>
+                            <div class="slack-card-actions">
+                                <span class="slack-status-pill"
+                                    :class="'tone-' + $store.slackConfig.statusTone(handler)"
+                                    x-text="$store.slackConfig.statusLabel(handler)"></span>
+                                <button class="btn btn-action delete"
+                                    @click.stop="$confirmClick($event, () => $store.slackConfig.removeHandler(idx))"
+                                    title="Remove workspace">
+                                    <span class="material-symbols-outlined">delete</span>
+                                </button>
+                                <span class="material-symbols-outlined slack-card-chevron"
+                                    :class="{ 'is-open': $store.slackConfig.editing === idx }">expand_more</span>
+                            </div>
+                        </div>
+
+                        <template x-if="$store.slackConfig.editing === idx">
+                            <div class="slack-card-body">
+
+                                <div class="field">
+                                    <div class="field-label">
+                                        <div class="field-title">Turn on this workspace</div>
+                                        <div class="field-description">Enable to open the Socket Mode connection for this Slack app.</div>
+                                    </div>
+                                    <div class="field-control">
+                                        <label class="toggle">
+                                            <input type="checkbox" x-model="handler.enabled" />
+                                            <span class="toggler"></span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="field">
+                                    <div class="field-label">
+                                        <div class="field-title">Handler name</div>
+                                        <div class="field-description">Internal slug (letters, numbers, underscore). Used to identify this listener.</div>
+                                    </div>
+                                    <div class="field-control">
+                                        <input type="text" x-model="handler.name" placeholder="acme" />
+                                    </div>
+                                </div>
+
+                                <div class="field">
+                                    <div class="field-label">
+                                        <div class="field-title">Bot User OAuth Token</div>
+                                        <div class="field-description">
+                                            Starts with <code>xoxb-</code>. From OAuth &amp; Permissions after installing the app.
+                                        </div>
+                                    </div>
+                                    <div class="field-control">
+                                        <input type="password" x-model="handler.bot_token"
+                                            @blur="$store.slackConfig.maybeAutoname(handler)"
+                                            placeholder="xoxb-..." />
+                                    </div>
+                                </div>
+
+                                <div class="field">
+                                    <div class="field-label">
+                                        <div class="field-title">App-Level Token</div>
+                                        <div class="field-description">
+                                            Starts with <code>xapp-</code>. Create under Basic Information &gt; App-Level Tokens with the <code>connections:write</code> scope.
+                                        </div>
+                                    </div>
+                                    <div class="field-control">
+                                        <input type="password" x-model="handler.app_token" placeholder="xapp-..." />
+                                    </div>
+                                </div>
+
+                                <div class="field">
+                                    <div class="field-label">
+                                        <div class="field-title">Listen to DMs</div>
+                                        <div class="field-description">Reply to direct messages sent to the bot.</div>
+                                    </div>
+                                    <div class="field-control">
+                                        <label class="toggle">
+                                            <input type="checkbox" x-model="handler.listen_dm" />
+                                            <span class="toggler"></span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="field">
+                                    <div class="field-label">
+                                        <div class="field-title">Listen in channels</div>
+                                        <div class="field-description">Reply when mentioned with <code>@app</code> or in threads the bot is part of.</div>
+                                    </div>
+                                    <div class="field-control">
+                                        <label class="toggle">
+                                            <input type="checkbox" x-model="handler.listen_channels" />
+                                            <span class="toggler"></span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="field">
+                                    <div class="field-label">
+                                        <div class="field-title">Allowed channel IDs</div>
+                                        <div class="field-description">Comma-separated Slack channel IDs. Empty = all channels where the bot is invited.</div>
+                                    </div>
+                                    <div class="field-control">
+                                        <input type="text"
+                                            :value="$store.slackConfig.commaList(handler.allowed_channels)"
+                                            @input="$store.slackConfig.setCommaList(handler, 'allowed_channels', $event.target.value)"
+                                            placeholder="C0123ABCDEF, C0456GHIJKL" />
+                                    </div>
+                                </div>
+
+                                <div class="field">
+                                    <div class="field-label">
+                                        <div class="field-title">Allowed user IDs</div>
+                                        <div class="field-description">Comma-separated Slack user IDs (U...). Empty = anyone can message.</div>
+                                    </div>
+                                    <div class="field-control">
+                                        <input type="text"
+                                            :value="$store.slackConfig.commaList(handler.allowed_users)"
+                                            @input="$store.slackConfig.setCommaList(handler, 'allowed_users', $event.target.value)"
+                                            placeholder="U0123ABCDEF" />
+                                    </div>
+                                </div>
+
+                                <div class="field">
+                                    <div class="field-label">
+                                        <div class="field-title">Project</div>
+                                        <div class="field-description">Activate this project automatically for new Slack chats.</div>
+                                    </div>
+                                    <div class="field-control">
+                                        <select x-model="handler.project">
+                                            <option value="">No project</option>
+                                            <template x-for="project in $store.slackConfig.projects" :key="project.name">
+                                                <option :value="project.name" x-text="project.title || project.name"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div class="field">
+                                    <div class="field-label">
+                                        <div class="field-title">Agent instructions</div>
+                                        <div class="field-description">Extra guidance injected into the system prompt for Slack sessions.</div>
+                                    </div>
+                                    <div class="field-control">
+                                        <textarea x-model="handler.agent_instructions" rows="3"
+                                            placeholder="Be concise in Slack replies..."></textarea>
+                                    </div>
+                                </div>
+
+                                <details class="slack-advanced">
+                                    <summary>Advanced</summary>
+
+                                    <div class="field">
+                                        <div class="field-label">
+                                            <div class="field-title">Denied user IDs</div>
+                                            <div class="field-description">Users to always ignore.</div>
+                                        </div>
+                                        <div class="field-control">
+                                            <input type="text"
+                                                :value="$store.slackConfig.commaList(handler.denied_users)"
+                                                @input="$store.slackConfig.setCommaList(handler, 'denied_users', $event.target.value)"
+                                                placeholder="U0123ABCDEF" />
+                                        </div>
+                                    </div>
+
+                                    <div class="field">
+                                        <div class="field-label">
+                                            <div class="field-title">Show thinking reaction</div>
+                                            <div class="field-description">Add an emoji reaction while the agent is processing.</div>
+                                        </div>
+                                        <div class="field-control">
+                                            <label class="toggle">
+                                                <input type="checkbox" x-model="handler.use_thinking_reaction" />
+                                                <span class="toggler"></span>
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <div class="field">
+                                        <div class="field-label">
+                                            <div class="field-title">Thinking emoji</div>
+                                            <div class="field-description">Emoji name without colons.</div>
+                                        </div>
+                                        <div class="field-control">
+                                            <input type="text" x-model="handler.thinking_emoji" placeholder="thinking_face" />
+                                        </div>
+                                    </div>
+
+                                    <div class="field">
+                                        <div class="field-label">
+                                            <div class="field-title">Model preset</div>
+                                            <div class="field-description">Optional model preset for new Slack chats.</div>
+                                        </div>
+                                        <div class="field-control">
+                                            <select x-model="handler.chat_model_preset">
+                                                <option value="">Default</option>
+                                                <template x-for="preset in $store.slackConfig.modelPresets" :key="preset.name">
+                                                    <option :value="preset.name" x-text="preset.name"></option>
+                                                </template>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div class="field">
+                                        <div class="field-label">
+                                            <div class="field-title">Max upload size (MB)</div>
+                                            <div class="field-description">Attachments larger than this are skipped in both directions.</div>
+                                        </div>
+                                        <div class="field-control">
+                                            <input type="number" min="1" max="1000" x-model.number="handler.max_upload_size_mb" />
+                                        </div>
+                                    </div>
+                                </details>
+
+                                <div class="slack-test">
+                                    <div class="slack-test-intro" x-text="$store.slackConfig.testIntro()"></div>
+                                    <button class="btn btn-field"
+                                        :disabled="!$store.slackConfig.canTest(handler) || $store.slackConfig.testing === idx"
+                                        @click="$store.slackConfig.testConnection(idx)"
+                                        x-text="$store.slackConfig.testButtonLabel(handler, idx)">
+                                    </button>
+                                    <template x-if="$store.slackConfig.testResults && $store.slackConfig.testResultsFor === idx">
+                                        <ul class="slack-test-results">
+                                            <template x-for="result in $store.slackConfig.testResults.results" :key="result.test">
+                                                <li :class="result.ok ? 'ok' : 'fail'">
+                                                    <span class="material-symbols-outlined"
+                                                        x-text="result.ok ? 'check_circle' : 'error'"></span>
+                                                    <div>
+                                                        <div class="slack-test-result-title"
+                                                            x-text="$store.slackConfig.resultTitle(result)"></div>
+                                                        <div class="slack-test-result-message"
+                                                            x-text="$store.slackConfig.resultMessage(result)"></div>
+                                                    </div>
+                                                </li>
+                                            </template>
+                                        </ul>
+                                    </template>
+                                </div>
+
+                            </div>
+                        </template>
+                    </div>
+                </template>
+
+                <template x-if="$store.slackConfig.handlers.length > 0">
+                    <button class="btn btn-ok" @click="$store.slackConfig.addHandler()">
+                        Add another workspace
+                    </button>
+                </template>
+            </div>
+        </template>
+    </div>
+</body>
+
+</html>

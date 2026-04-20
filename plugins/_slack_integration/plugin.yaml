@@ -1,0 +1,8 @@
+name: _slack_integration
+title: Slack Integration
+description: Communicate with Agent Zero via Slack. Uses Socket Mode for DMs, channel messages, and app mentions with thread-based routing.
+version: 1.0.0
+settings_sections:
+  - external
+per_project_config: false
+per_agent_config: false
