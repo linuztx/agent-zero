@@ -1,5 +1,8 @@
 PLUGIN_NAME = "_discord_integration"
-DOWNLOAD_FOLDER = "usr/uploads"
+# Relative path shared by the framework host and the agent execution runtime.
+# Inbound media is written here via RFC (write_attachment); outbound media the
+# agent hands back is read via RFC (read_attachment) and cached here on host.
+MEDIA_FOLDER = "usr/discord/media"
 STATE_FILE = "usr/plugins/_discord_integration/state.json"
 
 # Discord's per-message character cap for plain content

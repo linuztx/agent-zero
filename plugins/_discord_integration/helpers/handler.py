@@ -9,6 +9,7 @@ JSON state file.
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 import threading
@@ -17,7 +18,7 @@ import uuid
 from typing import TYPE_CHECKING, Any
 
 from agent import AgentContext, UserMessage
-from helpers import files, plugins, projects
+from helpers import files, plugins, projects, runtime
 from helpers import integration_commands
 from helpers import message_queue as mq
 from helpers.errors import format_error
@@ -43,7 +44,7 @@ from plugins._discord_integration.helpers.constants import (
     CTX_DC_TYPING_STOP,
     CTX_DC_USER_ID,
     CTX_DC_USERNAME,
-    DOWNLOAD_FOLDER,
+    MEDIA_FOLDER,
     PLUGIN_NAME,
     STATE_FILE,
 )
@@ -84,12 +85,16 @@ def _map_key(bot_name: str, user_id: int, channel_id: int) -> str:
 # ------------------------------------------------------------------
 
 def cleanup_old_attachments() -> None:
-    """Remove downloaded attachment files older than per-bot max age. 0 = keep forever."""
+    """Remove cached media files older than per-bot max age. 0 = keep forever.
+
+    Only sweeps the host-side media cache (MEDIA_FOLDER). Files on the agent
+    runtime side are left to the agent's normal workspace hygiene.
+    """
     config = plugins.get_plugin_config(PLUGIN_NAME) or {}
     bots_cfg = config.get("bots") or []
     total_removed = 0
-    upload_dir = files.get_abs_path(DOWNLOAD_FOLDER)
-    if not os.path.isdir(upload_dir):
+    media_dir = files.get_abs_path(MEDIA_FOLDER)
+    if not os.path.isdir(media_dir):
         return
     for bot_cfg in bots_cfg:
         bot_name = bot_cfg.get("name", "")
@@ -100,10 +105,10 @@ def cleanup_old_attachments() -> None:
             continue
         prefix = f"dc_{bot_name}_"
         cutoff = time.time() - max_age_hours * 3600
-        for name in os.listdir(upload_dir):
+        for name in os.listdir(media_dir):
             if not name.startswith(prefix):
                 continue
-            path = os.path.join(upload_dir, name)
+            path = os.path.join(media_dir, name)
             try:
                 if os.path.isfile(path) and os.path.getmtime(path) < cutoff:
                     os.remove(path)
@@ -324,25 +329,91 @@ def _format_channel(message: "discord.Message") -> str:
 async def _download_attachments(
     message: "discord.Message", bot_name: str,
 ) -> list[str]:
-    """Download message attachments to usr/uploads and return dockerized paths."""
+    """Download Discord attachments and place them in the execution runtime via RFC.
+
+    Each attachment is first pulled onto the host (so discord.py can do the
+    actual HTTP download), then shipped into the agent runtime with
+    `runtime.call_development_function(write_attachment, ...)`. If the RFC
+    fails we fall back to the host path so the agent still gets something.
+    """
+    from plugins._discord_integration.helpers.attachment_writer import write_attachment
+
     atts = getattr(message, "attachments", None) or []
     if not atts:
         return []
 
-    download_dir = files.get_abs_path(DOWNLOAD_FOLDER)
-    os.makedirs(download_dir, exist_ok=True)
-    download_dir_ref = files.get_abs_path_dockerized(DOWNLOAD_FOLDER)
+    media_dir = files.get_abs_path(MEDIA_FOLDER)
+    os.makedirs(media_dir, exist_ok=True)
 
     paths: list[str] = []
     for att in atts:
         safe_name = f"dc_{bot_name}_{uuid.uuid4().hex[:8]}_{att.filename}"
-        dest = os.path.join(download_dir, safe_name)
+        host_path = os.path.join(media_dir, safe_name)
         try:
-            await att.save(dest)
-            paths.append(os.path.join(download_dir_ref, safe_name))
+            await att.save(host_path)
         except Exception as e:
             PrintStyle.warning(f"Discord: attachment download failed: {format_error(e)}")
+            continue
+
+        try:
+            with open(host_path, "rb") as f:
+                content_b64 = base64.b64encode(f.read()).decode()
+        except OSError as e:
+            PrintStyle.warning(f"Discord: could not read attachment: {format_error(e)}")
+            continue
+
+        rel_path = os.path.join(MEDIA_FOLDER, safe_name)
+        try:
+            result = await runtime.call_development_function(
+                write_attachment, rel_path, content_b64,
+            )
+        except Exception as e:
+            PrintStyle.warning(f"Discord: attachment RFC failed: {format_error(e)}")
+            paths.append(host_path)
+            continue
+
+        if result.get("error"):
+            PrintStyle.warning(f"Discord media save: {result['error']}")
+            paths.append(host_path)
+        else:
+            paths.append(result["path"])
     return paths
+
+
+async def _read_attachments_to_host(paths: list[str]) -> list[str]:
+    """Pull agent-side attachment paths back to host for a Discord upload.
+
+    Mirrors the WhatsApp integration's approach: the agent gives us paths that
+    live inside its execution runtime. We fetch the bytes via RFC, cache them
+    under MEDIA_FOLDER on the host, and hand `discord.File` a host path.
+    """
+    from plugins._discord_integration.helpers.attachment_reader import read_attachment
+
+    host_paths: list[str] = []
+    media_dir = files.get_abs_path(MEDIA_FOLDER)
+    os.makedirs(media_dir, exist_ok=True)
+
+    for path in paths:
+        try:
+            data = await runtime.call_development_function(read_attachment, path)
+        except Exception as e:
+            PrintStyle.warning(f"Discord: attachment RFC read failed: {format_error(e)}")
+            continue
+
+        if data.get("error"):
+            PrintStyle.warning(f"Discord attachment: {data['error']}")
+            continue
+
+        name = data.get("name") or os.path.basename(path) or f"attachment_{uuid.uuid4().hex[:8]}"
+        host_path = os.path.join(media_dir, name)
+        try:
+            with open(host_path, "wb") as f:
+                f.write(base64.b64decode(data["content_b64"]))
+        except OSError as e:
+            PrintStyle.warning(f"Discord: could not write host cache: {format_error(e)}")
+            continue
+        host_paths.append(host_path)
+    return host_paths
 
 
 # ------------------------------------------------------------------
@@ -597,12 +668,13 @@ async def send_discord_reply(
         except Exception:
             reply_to = None
 
-    # Attachments first; they appear above the reply text in Discord
+    # Attachments first; they appear above the reply text in Discord.
+    # The agent hands us paths inside its execution runtime, so we pull each
+    # file to the host via RFC before uploading.
     if attachments:
-        from helpers import files as files_helper
-        for path in attachments:
-            local_path = files_helper.fix_dev_path(path)
-            await dc.send_file(channel, local_path, reply_to=reply_to)
+        host_paths = await _read_attachments_to_host(attachments)
+        for host_path in host_paths:
+            await dc.send_file(channel, host_path, reply_to=reply_to)
 
     # Main reply text, split to 2000-char chunks, with optional button view
     clean_text = dc.md_for_discord(response_text)

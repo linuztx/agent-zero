@@ -67,7 +67,7 @@ helpers/handler.py::send_discord_reply  →  channel.send
 ## State & Persistence
 
 - Per-chat mapping lives in `usr/plugins/_discord_integration/state.json` keyed by `"{bot}:{user_id}:{channel_id}"`. Contexts survive restarts; `/clear` resets just one chat.
-- Downloaded attachments are stored under `usr/uploads/dc_<bot>_<uuid>_<name>`.
+- Attachments cross the framework↔agent sandbox boundary via `runtime.call_development_function` using `helpers/attachment_writer.py` (inbound) and `helpers/attachment_reader.py` (outbound). Media is cached under `usr/discord/media/dc_<bot>_<uuid>_<name>` on both sides.
 - Session persistence on the Discord side is not needed — each restart re-logs into the gateway from the token.
 
 ## Gotchas

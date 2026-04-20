@@ -1,0 +1,34 @@
+"""
+Read attachment files from the execution runtime.
+
+Invoked across the RFC boundary via `runtime.call_development_function`,
+so this module must avoid any agent/tool dependencies.
+"""
+
+import base64
+import os
+from typing import TypedDict
+
+
+class AttachmentData(TypedDict):
+    name: str
+    content_b64: str
+    error: str
+
+
+def read_attachment(path: str) -> AttachmentData:
+    try:
+        if not os.path.isfile(path):
+            return AttachmentData(
+                name="", content_b64="", error=f"file not found: {path}",
+            )
+        name = os.path.basename(path)
+        with open(path, "rb") as f:
+            content = f.read()
+        return AttachmentData(
+            name=name,
+            content_b64=base64.b64encode(content).decode(),
+            error="",
+        )
+    except Exception as e:
+        return AttachmentData(name="", content_b64="", error=str(e))
