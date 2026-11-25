@@ -42,7 +42,7 @@ from anyio.streams.memory import (
 )
 
 from pydantic import BaseModel, Field, Discriminator, Tag, PrivateAttr
-from helpers import dirty_json, files, media_artifacts
+from helpers import dirty_json, files, mcp_instructions, media_artifacts
 from helpers.print_style import PrintStyle
 from helpers.tool import Tool, Response
 from helpers.defer import DeferredTask
@@ -113,6 +113,27 @@ def _normalize_disabled_tools(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
     return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _server_instructions(server: Any) -> str:
+    """Instructions a server sent with its tool list, or "" when unavailable."""
+    get_instructions = getattr(server, "get_instructions", None)
+    if not callable(get_instructions):
+        return ""
+    try:
+        return mcp_instructions.normalize_instructions(get_instructions())
+    except Exception:
+        return ""
+
+
+def _render_prompt(agent: Any | None, file: str, **kwargs: Any) -> str:
+    if agent is not None:
+        return agent.read_prompt(file, **kwargs).strip()
+    return files.read_prompt_file(
+        file,
+        _directories=[str(Path(__file__).resolve().parents[1] / "prompts")],
+        **kwargs,
+    ).strip()
 
 
 def _split_stdio_command(command: Any) -> tuple[str, list[str]]:
@@ -577,6 +598,11 @@ class MCPServerRemote(BaseModel):
                 for tool in tools
             ]
 
+    def get_instructions(self) -> str:
+        """Get the instructions the server sent with its tool list"""
+        with self.__lock:
+            return self.__client.get_instructions()  # type: ignore
+
     def has_tool(self, tool_name: str) -> bool:
         """Check if a tool is available"""
         if tool_name in self.disabled_tools:
@@ -677,6 +703,11 @@ class MCPServerLocal(BaseModel):
                 {**tool, "disabled": tool.get("name") in disabled}
                 for tool in tools
             ]
+
+    def get_instructions(self) -> str:
+        """Get the instructions the server sent with its tool list"""
+        with self.__lock:
+            return self.__client.get_instructions()  # type: ignore
 
     def has_tool(self, tool_name: str) -> bool:
         """Check if a tool is available"""
@@ -1096,6 +1127,7 @@ class MCPConfig(BaseModel):
                         "error": error,
                         "tool_count": tool_count,
                         "has_log": has_log,
+                        "has_instructions": bool(_server_instructions(server)),
                     }
                 )
 
@@ -1111,6 +1143,7 @@ class MCPConfig(BaseModel):
                         "error": disconnected["error"],
                         "tool_count": 0,
                         "has_log": False,
+                        "has_instructions": False,
                     }
                 )
 
@@ -1130,6 +1163,7 @@ class MCPConfig(BaseModel):
                         "description": server.description,
                         "scope": getattr(server, "scope", self.config_scope),
                         "type": getattr(server, "type", ""),
+                        "instructions": _server_instructions(server),
                         "tools": tools,
                     }
             return {}
@@ -1158,13 +1192,7 @@ class MCPConfig(BaseModel):
             pass
 
         def render(file: str, **kwargs: Any) -> str:
-            if agent is not None:
-                return agent.read_prompt(file, **kwargs).strip()
-            return files.read_prompt_file(
-                file,
-                _directories=[str(Path(__file__).resolve().parents[1] / "prompts")],
-                **kwargs,
-            ).strip()
+            return _render_prompt(agent, file, **kwargs)
 
         server_names = []
         for server in self.servers:
@@ -1228,6 +1256,47 @@ class MCPConfig(BaseModel):
             return servers
         return render("agent.system.mcp_tools.md", tools=servers) + "\n"
 
+    def get_instructions_prompt(self, agent: Any | None = None) -> str:
+        """Get the contained instructions of servers whose tools are offered.
+
+        A server contributes only when the tools prompt renders it: at least one
+        enabled tool the agent's profile policy allows. Config order is kept so
+        the prompt stays stable across turns.
+        """
+
+        # just to wait for pending initialization
+        with self.__lock:
+            pass
+
+        policy = None
+        if agent is not None:
+            from helpers import tool_policy
+
+        servers: list[tuple[str, str]] = []
+        for server in self.servers:
+            instructions = _server_instructions(server)
+            if not instructions:
+                continue
+            for tool in server.get_tools():
+                if agent is not None:
+                    qualified_name = f"{server.name}.{tool['name']}"
+                    if policy is None:
+                        policy = tool_policy.get_policy(agent)
+                    if not tool_policy.resolve_tool(
+                        agent,
+                        qualified_name,
+                        canonical_id=tool_policy.canonical_mcp_id(qualified_name),
+                        _policy=policy,
+                    ).allowed:
+                        continue
+                servers.append((server.name, instructions))
+                break
+
+        return mcp_instructions.build_instructions_section(
+            servers,
+            lambda file, **kwargs: _render_prompt(agent, file, **kwargs),
+        )
+
     def has_tool(self, tool_name: str) -> bool:
         """Check if a tool is available"""
         try:
@@ -1286,6 +1355,8 @@ class MCPClientBase(ABC):
     def __init__(self, server: Union[MCPServerLocal, MCPServerRemote]):
         self.server = server
         self.tools: List[dict[str, Any]] = []  # Tools are cached on the client instance
+        # Instructions from the initialize result of the session that listed the tools
+        self.instructions: str = ""
         self.error: str = ""
         self.log: List[str] = []
         self.log_file: Optional[TextIO] = None
@@ -1348,10 +1419,12 @@ class MCPClientBase(ABC):
         self,
         coro_func: Callable[[ClientSession], Awaitable[T]],
         read_timeout_seconds=60,
+        on_initialized: Callable[[Any], None] | None = None,
     ) -> T:
         """
         Manages the lifecycle of an MCP session for a single operation.
         Creates a temporary session, executes coro_func with it, and ensures cleanup.
+        on_initialized receives the session's initialize result before coro_func runs.
         """
         operation_name = coro_func.__name__  # For logging
         # PrintStyle(font_color="cyan").print(f"MCPClientBase ({self.server.name}): Creating new session for operation '{operation_name}'...")
@@ -1371,7 +1444,9 @@ class MCPClientBase(ABC):
                     ),
                 )
             )
-            await session.initialize()
+            init_result = await session.initialize()
+            if on_initialized is not None:
+                on_initialized(init_result)
 
             result = await coro_func(session)
             has_result = True
@@ -1411,9 +1486,15 @@ class MCPClientBase(ABC):
 
     async def update_tools(self) -> "MCPClientBase":
         # PrintStyle(font_color="cyan").print(f"MCPClientBase ({self.server.name}): Starting 'update_tools' operation...")
+        initialized: list[Any] = []
 
         async def list_tools_op(current_session: ClientSession):
             response: ListToolsResult = await current_session.list_tools()
+            # Instructions are captured only while listing tools, never on tool-call
+            # sessions, so the system prompt stays stable between refreshes.
+            instructions = mcp_instructions.normalize_instructions(
+                getattr(initialized[-1], "instructions", None) if initialized else None
+            )
             with self.__lock:
                 self.tools = [
                     {
@@ -1423,6 +1504,7 @@ class MCPClientBase(ABC):
                     }
                     for tool in response.tools
                 ]
+                self.instructions = instructions
                 self.error = ""
             PrintStyle(font_color="green").print(
                 f"MCPClientBase ({self.server.name}): Tools updated. Found {len(self.tools)} tools."
@@ -1440,6 +1522,7 @@ class MCPClientBase(ABC):
                 lambda: self._execute_with_session(
                     list_tools_op,
                     read_timeout_seconds=init_timeout,
+                    on_initialized=initialized.append,
                 ),
                 timeout_seconds=self._operation_timeout_seconds(init_timeout),
             )
@@ -1454,6 +1537,7 @@ class MCPClientBase(ABC):
             )
             with self.__lock:
                 self.tools = []  # Ensure tools are cleared on failure
+                self.instructions = ""
                 self.error = f"Failed to initialize. {error_text[:200]}{'...' if len(error_text) > 200 else ''}"  # store error from tools fetch
         return self
 
@@ -1469,6 +1553,11 @@ class MCPClientBase(ABC):
         """Get all tools from the server (uses cached tools)"""
         with self.__lock:
             return [dict(tool) for tool in self.tools]
+
+    def get_instructions(self) -> str:
+        """Get the server instructions cached with the tools"""
+        with self.__lock:
+            return self.instructions
 
     async def call_tool(
         self, tool_name: str, input_data: Dict[str, Any]

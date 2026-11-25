@@ -50,6 +50,36 @@ URL-based MCP tool:
 Use `command` for local tools and `url` for tools that are already running
 somewhere else.
 
+## Server Instructions
+
+MCP servers may return an `instructions` string when Agent Zero initializes
+them. Agent Zero captures it each time it lists the server's tools. It then
+appends the instructions to the system prompt after the MCP tools section:
+
+```text
+## MCP server instructions
+<framing>
+
+### Instructions from MCP server `docs`
+<the server's text>
+```
+
+- A server contributes only while the active profile's tool policy allows at
+  least one of its enabled tools.
+- Each server's text is cut at 4,096 characters with an explicit
+  `...[truncated]` marker.
+- Its Markdown headings are pushed below the section's own headings, and an
+  unclosed code fence is closed. One server's text cannot pose as a new section
+  or as another server.
+- The text appears in Chat Completions and Responses API turns alike, and the
+  context-window indicator counts it under MCP tools.
+- The server status API reports `has_instructions`. The server detail API
+  returns the captured `instructions` text.
+
+The `mcp_client_instructions_enabled` setting (default `true`) controls the
+section. It is **Use server instructions** in the External MCP Servers settings,
+or `A0_SET_mcp_client_instructions_enabled=false` in the environment.
+
 ## Docker Addresses
 
 If Agent Zero runs in Docker, remember that "localhost" means the container, not
@@ -68,6 +98,9 @@ tool in the same Docker network is often simpler.
 ## Safety
 
 - Use MCP tools you trust.
+- Server instructions are third-party text added to the agent's system prompt.
+  Review them in the server's tools view, scan new servers, or turn off **Use
+  server instructions** for servers you do not fully trust.
 - Keep real API keys out of public screenshots and repositories.
 - Prefer project secrets or environment variables for credentials.
 - Remove MCP tools you no longer use.

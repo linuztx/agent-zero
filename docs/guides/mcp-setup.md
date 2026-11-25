@@ -84,6 +84,24 @@ You can still ask naturally:
 Use the connected Gmail tools to find the last message from Alice and summarize it.
 ```
 
+## Server Instructions
+
+Some MCP servers also send instructions for using their tools, such as which
+tool to call first or what an argument means. Agent Zero adds them to the
+agent's system prompt right after the MCP tools, under **MCP server
+instructions**.
+
+- A server's status row shows **Instructions** when it sent some. Open its
+  tools to read the text.
+- Only servers whose tools the active Agent Profile may use contribute
+  instructions.
+- Each server's text is limited to 4,096 characters and kept inside its own
+  section of the prompt.
+
+To leave server instructions out of the prompt, turn off **Use server
+instructions** in **Settings -> MCP/A2A -> External MCP Servers** and save.
+The change applies to the next message; servers stay connected.
+
 ## Common Examples
 
 ### Tool Started By A Command

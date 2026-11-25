@@ -27,6 +27,21 @@
             </div>
           </div>
 
+          <div class="field">
+            <div class="field-label">
+              <div class="field-title">Use server instructions</div>
+              <div class="field-description">
+                Add the usage instructions that connected MCP servers provide to the agent's system prompt, after their tools.
+              </div>
+            </div>
+            <div class="field-control">
+              <label class="toggle">
+                <input type="checkbox" x-model="settings.mcp_client_instructions_enabled" />
+                <span class="toggler"></span>
+              </label>
+            </div>
+          </div>
+
           <div class="settings-advanced-section" x-data="{ advOpen: false }">
             <button type="button" class="settings-advanced-toggle" @click="advOpen = !advOpen">
               <x-icon class="settings-advanced-toggle-icon"

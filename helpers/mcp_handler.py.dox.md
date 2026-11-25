@@ -21,6 +21,7 @@
   - `get_log(self) -> str`
   - `get_tools(self) -> List[dict[str, Any]]`
   - `get_all_tools(self) -> List[dict[str, Any]]`
+  - `get_instructions(self) -> str`
   - `has_tool(self, tool_name: str) -> bool`
   - `async call_tool(self, tool_name: str, input_data: Dict[str, Any]) -> CallToolResult`
   - `update(self, config: dict[str, Any]) -> 'MCPServerRemote'`
@@ -30,6 +31,7 @@
   - `get_log(self) -> str`
   - `get_tools(self) -> List[dict[str, Any]]`
   - `get_all_tools(self) -> List[dict[str, Any]]`
+  - `get_instructions(self) -> str`
   - `has_tool(self, tool_name: str) -> bool`
   - `async call_tool(self, tool_name: str, input_data: Dict[str, Any]) -> CallToolResult`
   - `update(self, config: dict[str, Any]) -> 'MCPServerLocal'`
@@ -49,10 +51,13 @@
   - `get_servers_status(self) -> list[dict[str, Any]]`
   - `get_server_detail(self, server_name: str) -> dict[str, Any]`
   - `is_initialized(self) -> bool`
+  - `get_tools_prompt(self, server_name: str = '', agent: Any | None = None, *, include_tools: bool = True) -> str`
+  - `get_instructions_prompt(self, agent: Any | None = None) -> str`
 - `MCPClientBase` (`ABC`)
   - `async update_tools(self) -> 'MCPClientBase'`
   - `has_tool(self, tool_name: str) -> bool`
   - `get_tools(self) -> List[dict[str, Any]]`
+  - `get_instructions(self) -> str`
   - `async call_tool(self, tool_name: str, input_data: Dict[str, Any]) -> CallToolResult`
   - `get_log(self)`
 - `MCPClientLocal` (`MCPClientBase`)
@@ -69,6 +74,8 @@
 - `_split_stdio_command(command: Any) -> tuple[str, list[str]]`: Split shell-style local MCP command lines into an executable plus leading arguments.
 - `_split_stdio_arg_fragment(arg: str) -> list[str]`: Split collapsed option/value argument fragments while preserving obvious single values with spaces.
 - `_normalize_stdio_args(value: Any) -> list[str]`: Normalize local MCP argument lists after manager/raw JSON parsing.
+- `_server_instructions(server: Any) -> str`: Read a server's captured instructions, tolerating server objects without `get_instructions`.
+- `_render_prompt(agent: Any | None, file: str, **kwargs: Any) -> str`: Render an MCP prompt template through the agent, or from core `prompts/` without one.
 - `initialize_mcp(mcp_servers_config: str)`
 - Notable constants/configuration names: `DEFAULT_MCP_SERVERS_CONFIG`, `MCP_MEDIA_TOKENS_ESTIMATE`, `MAX_MCP_RESOURCE_TEXT_CHARS`, `MCP_SESSION_CLEANUP_TIMEOUT_SECONDS`, `MCP_OPERATION_TIMEOUT_GRACE_SECONDS`, `T`.
 
@@ -96,6 +103,9 @@
   `prompts/agent.system.mcp_server.md`, and
   `prompts/agent.system.mcp_tool.md`; this helper supplies the policy-filtered
   server names, exact qualified tool names, descriptions, and schemas.
+- `MCPClientBase.update_tools()` captures the optional `instructions` string from the `initialize` result of the session that lists tools, normalized by `helpers.mcp_instructions`, and commits it under the client lock together with the tool list. Tool-call sessions never replace it, a failed listing clears it with the tools, and config or project refreshes start from new clients. `_execute_with_session(on_initialized=...)` hands the initialize result to that callback before the operation runs.
+- Server status entries include `has_instructions`, and server detail includes the captured `instructions` text (empty when the server sent none).
+- `get_instructions_prompt(agent)` renders server instructions only for servers the tools prompt offers: at least one enabled tool allowed by one fresh policy snapshot. Config order is kept so the text stays stable across turns. `helpers.mcp_instructions` contains each server's text and renders `prompts/agent.system.mcp_instructions.md` and `prompts/agent.system.mcp_server_instructions.md`, inserting server text only after template processing. The system-prompt extension owns the `mcp_client_instructions_enabled` gate.
 - `MCPConfig.get_tool()` tries the supplied qualified name first, then restores an advertised Responses alias from the calling agent's name map; names that still do not identify an MCP tool return `None` unchanged for downstream local-tool resolution.
 - Servers may define `disabled_tools` as a list of MCP tool names. Disabled tools are omitted from agent-facing prompts, status counts, `has_tool`, and calls, while detail views can still retrieve them through `get_all_tools()` with a `disabled` flag so users can re-enable them.
 - Server-specific `init_timeout` and `tool_timeout` override global MCP client timeout settings for list-tools and call-tool operations.
@@ -124,6 +134,7 @@
 - Run targeted tests for changed helper behavior; run security regressions for auth, filesystem, WebSocket, tunnel, upload, or secret-handling helpers.
 - Related tests observed by source search:
   - `tests/test_mcp_handler_multimodal.py`
+  - `tests/test_mcp_server_instructions.py`
   - `tests/test_tool_policy.py`
 
 ## Child DOX Index

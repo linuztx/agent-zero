@@ -13,6 +13,7 @@
 
 - Preserve ordering where sections depend on earlier context.
 - Main, local-tool and MCP section owners identify their sections to `helpers.responses_tools.register_prompt` while retaining normal text prompts. That helper owns alternate protocol templates; Chat and fallback keep the text protocol. MCP supplies policy-filtered server context independently of endpoint mode.
+- `_12_mcp_prompt.py` appends MCP server instructions (`build_instructions_prompt`) as a separate, unregistered element right after a non-empty MCP tools prompt, so the Responses projection of the tools text leaves them intact in both transports. The `mcp_client_instructions_enabled` setting gates them through `get_settings_for_prompt()`. Do not rename `build_prompt` or `build_instructions_prompt`; context-window accounting hooks both.
 - Keep secret-related prompt sections masked and scoped.
 - Prompt additions must be bounded and compatible with tool-call contracts.
 - Keep non-tool sections free of configurable capability guidance; tool-owned

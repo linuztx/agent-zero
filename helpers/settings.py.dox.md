@@ -81,6 +81,7 @@
   inherited task contexts cannot retain or repopulate an expired version; reads
   outside an active scope resolve the version afresh.
 - Applying settings starts a deferred `MCPConfig.update(...)` with the current `mcp_servers` string when global MCP server settings change.
+- `mcp_client_instructions_enabled` defaults true (`A0_SET_mcp_client_instructions_enabled` overrides it). The MCP system-prompt section reads it through `get_settings_for_prompt()` at prompt build, so toggling it needs no MCP reconnect; servers' instructions are captured regardless of the toggle.
 - `get_settings()` retains normalize-on-read behavior. Prompt-building callers
   explicitly use `get_settings_for_prompt()` to reuse one task-local snapshot
   within each `Agent.prepare_prompt()` call.

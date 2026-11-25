@@ -49,6 +49,9 @@ class McpServerScan(ApiHandler):
                 runtime_status = scan_config.get_servers_status()
                 runtime_detail = scan_config.get_server_detail(server.get("name", ""))
                 warnings.extend(self._tool_warnings(runtime_detail.get("tools", [])))
+                warnings.extend(
+                    self._instruction_warnings(runtime_detail.get("instructions", ""))
+                )
             except Exception as exc:
                 runtime_error = str(exc)
                 warnings.append(
@@ -215,6 +218,21 @@ class McpServerScan(ApiHandler):
                     }
                 )
         return warnings
+
+    def _instruction_warnings(self, instructions: Any) -> list[dict[str, str]]:
+        if not isinstance(instructions, str) or not instructions.strip():
+            return []
+        haystack = instructions.lower()
+        if not any(marker in haystack for marker in _PROMPT_INJECTION_MARKERS):
+            return []
+        return [
+            {
+                "level": "warning",
+                "title": "Suspicious server instructions",
+                "message": "Review this server's instructions for prompt-injection style language. "
+                "Agent Zero adds them to the agent's system prompt while server instructions are enabled.",
+            }
+        ]
 
     def _redact_server(self, server: dict[str, Any]) -> dict[str, Any]:
         redacted = dict(server)

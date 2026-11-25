@@ -100,6 +100,7 @@ class Settings(TypedDict):
     mcp_servers: str
     mcp_client_init_timeout: int
     mcp_client_tool_timeout: int
+    mcp_client_instructions_enabled: bool
     mcp_server_enabled: bool
     mcp_server_token: str
 
@@ -646,6 +647,7 @@ def get_default_settings() -> Settings:
         mcp_servers=get_default_value("mcp_servers", '{\n    "mcpServers": {}\n}'),
         mcp_client_init_timeout=get_default_value("mcp_client_init_timeout", 10),
         mcp_client_tool_timeout=get_default_value("mcp_client_tool_timeout", 120),
+        mcp_client_instructions_enabled=get_default_value("mcp_client_instructions_enabled", True),
         mcp_server_enabled=get_default_value("mcp_server_enabled", False),
         mcp_server_token=create_auth_token(),
         a2a_server_enabled=get_default_value("a2a_server_enabled", False),

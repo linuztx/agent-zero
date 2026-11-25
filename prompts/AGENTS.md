@@ -31,6 +31,12 @@
 - MCP prompt templates own the static outer, server, and tool framing;
   `helpers/mcp_handler.py` supplies policy-filtered names, descriptions, and
   schemas.
+- `agent.system.mcp_instructions.md` and `agent.system.mcp_server_instructions.md`
+  own the MCP server-instructions framing: server text is context for that
+  server's tools, never capabilities or overrides. `helpers/mcp_instructions.py`
+  inserts contained server text into `{{servers}}` and `{{instructions}}` only
+  after template rendering, so those values never pass through includes or
+  placeholders. Keep both templates' heading levels in sync with its heading shift.
 - Summary prompts that compress history should preserve loaded skill names from `skill_instructions` metadata without copying full skill bodies.
 - `Agent.read_prompt` and `Agent.parse_prompt` strip trailing newlines from returned content, so prompt template files may safely keep a final newline. Do not rely on trailing newlines for formatting; render-time joins in `output_text()` already separate turns.
 - `fw.initial_user_message.md` owns the placeholder user turn (`Hello!`) that `extensions/python/agent_init/_10_initial_message.py` pairs before the AI greeting from `fw.initial_message.md`; the user-first ordering guarantees `output_langchain` does not pop the greeting as a leading `AIMessage` on project or non-project paths. Do not remove either prompt without replacing the turn-order guarantee.

@@ -26,7 +26,7 @@
 
 ## Key Concepts
 
-- Static checks report invalid URLs, non-HTTPS remote URLs, missing local commands, interpreter-style local commands, headers/env presence, and obvious prompt-injection markers in inspected tool descriptions.
+- Static checks report invalid URLs, non-HTTPS remote URLs, missing local commands, interpreter-style local commands, headers/env presence, and obvious prompt-injection markers in inspected tool descriptions and server instructions. Instruction warnings note that enabled server instructions reach the agent system prompt.
 - Static errors skip runtime inspection; remote network inspection and local command execution both require explicit trust flags.
 - Runtime inspection creates a temporary `MCPConfig` in a worker thread so stdio/remote tool listing does not call `asyncio.run()` inside the request event loop.
 

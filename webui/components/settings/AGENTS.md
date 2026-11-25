@@ -29,6 +29,7 @@
   `interface-controls-end` and register visibility defaults with the shared
   preference store.
 - MCP manager tool toggles write `disabled_tools` into the draft JSON and require Apply before changing the running MCP tool set.
+- External MCP Servers shows **Use server instructions** (`mcp_client_instructions_enabled`, default on) as a normal Save/Cancel setting. The server status row marks servers that sent instructions, the tool detail modal shows their text with `x-text` only, and the scanner's AI prompt treats server instructions as untrusted material.
 - Confirmed MCP server removals apply immediately and refresh server status; other MCP manager draft edits still require Apply.
 - MCP manager local command forms accept shell-style command and argument lines; quote argument values that intentionally contain spaces.
 

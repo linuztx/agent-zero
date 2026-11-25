@@ -23,6 +23,9 @@
   `mcp_tools`, `system_prompt`, and `extras`.
 - Tools, MCP tools, and the available-skills catalog are measured from their
   extensible prompt builders, never inferred from rendered headings.
+- MCP server instructions come from the separate `build_instructions_prompt`
+  builder and are added to MCP tools with `add_prompt`, which keeps its own
+  fragment cache entry instead of overwriting the tools measurement.
 - Loaded skill instructions are removed from Messages and added to Skills.
 - Protocol and prompt extras are reported together as Extras.
 - Messages reuse the history record token ledger; independently rendered

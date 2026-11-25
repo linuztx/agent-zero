@@ -40,6 +40,19 @@ def record_prompt(agent: Any, key: str, prompt: Any) -> None:
     parts[key] = _cached_tokens(agent, f"prompt:{key}", text)
 
 
+def add_prompt(agent: Any, key: str, prompt: Any, *, source: str) -> None:
+    """Add a separately built fragment to a bucket its owner already recorded."""
+    parts = _parts(agent)
+    if parts is None or key not in MEASURED_KEYS:
+        return
+    text = files.remove_code_fences(str(prompt or ""), language="json")
+    if not text:
+        return
+    parts[key] = _non_negative_int(parts.get(key)) + _cached_tokens(
+        agent, f"prompt:{source}", text
+    )
+
+
 def capture_context(agent: Any, loop_data: Any) -> None:
     parts = _parts(agent)
     if parts is None or loop_data is None:

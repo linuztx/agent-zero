@@ -667,6 +667,7 @@ const model = {
           risk_level: this.scanResult.risk_level,
           warnings: this.scanResult.warnings || [],
           inspected_tools: this.scanResult.inspected_tools || [],
+          server_instructions: this.scanResult.detail?.instructions || "",
         }, null, 2)
         : "No deterministic config inspection has been run in this modal yet.";
 

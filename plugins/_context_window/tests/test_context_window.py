@@ -462,6 +462,40 @@ def test_source_prompt_extensions_are_registered():
         classes = extension._get_extension_classes(point)  # type: ignore[attr-defined]
         assert any(cls.__name__ == recorder for cls in classes)
 
+    instructions_builder = system_prompt_classes["MCPToolsPrompt"].execute.__globals__[
+        "build_instructions_prompt"
+    ]
+    module = instructions_builder.__wrapped__.__module__.replace(".", "/")
+    point = f"_functions/{module}/build_instructions_prompt/end"
+    classes = extension._get_extension_classes(point)  # type: ignore[attr-defined]
+    assert any(cls.__name__ == "RecordMcpInstructionsUsage" for cls in classes)
+
+
+def test_mcp_server_instructions_count_as_mcp_tools(monkeypatch):
+    agent = SimpleNamespace(data={}, loop_data=LoopData())
+    monkeypatch.setattr(usage.tokens, "approximate_prompt_tokens", len)
+
+    usage.reset(agent)
+    usage.record_prompt(agent, "mcp_tools", "tools")
+    usage.add_prompt(agent, "mcp_tools", "", source="mcp_instructions")
+    usage.add_prompt(agent, "mcp_tools", "guidance", source="mcp_instructions")
+    usage.add_prompt(agent, "unknown", "ignored", source="mcp_instructions")
+
+    parts = agent.loop_data.params_temporary[usage.PARTS_KEY]
+    assert parts["mcp_tools"] == len("tools") + len("guidance")
+    assert "unknown" not in parts
+    assert set(agent.data[usage.CACHE_KEY]) == {
+        "prompt:mcp_tools",
+        "prompt:mcp_instructions",
+    }
+
+    usage.reset(agent)
+    usage.record_prompt(agent, "mcp_tools", "tools")
+    usage.add_prompt(agent, "mcp_tools", "guidance", source="mcp_instructions")
+    assert agent.loop_data.params_temporary[usage.PARTS_KEY]["mcp_tools"] == len(
+        "tools"
+    ) + len("guidance")
+
 
 @pytest.mark.asyncio
 async def test_chat_stream_drains_terminal_provider_usage(monkeypatch):
